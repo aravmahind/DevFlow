@@ -1,7 +1,10 @@
-"""Specialist tools and inter-agent consultation bindings for Devflow agents.
+"""Specialist tools for DEVFLOW agents (v2 — 6-agent roster).
 
-Provides dedicated, callable tools for each specialist role in the AI organization,
-backed by domain knowledge databases, database history, and inter-agent delegation.
+Changes from v1:
+  - Removed inter-agent consultation tools (agents no longer call each other
+    directly; all coordination flows through the LangGraph orchestrator).
+  - Remapped tools to the 6 new agent IDs.
+  - Added GitHub analysis tools for the new github_monitor agent.
 """
 from __future__ import annotations
 
@@ -10,14 +13,6 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from tools.inter_agent_tools import (
-    consult_integration_agent,
-    consult_product_manager,
-    consult_risk_analyst,
-    consult_sprint_planner,
-    consult_system_architect,
-    consult_team_allocation,
-)
 from tools.knowledge_databases import (
     AGILE_VELOCITY_DATABASE,
     ARCHITECTURE_KNOWLEDGE_BASE,
@@ -33,7 +28,7 @@ from tools.text_tools import (
 )
 
 # ============================================================================
-# CEO Tools
+# Requirement Agent Tools
 # ============================================================================
 @tool
 def evaluate_market_and_business_model(domain: str = "", target_audience: str = "B2B") -> str:
@@ -52,9 +47,6 @@ def evaluate_market_and_business_model(domain: str = "", target_audience: str = 
     return json.dumps(insights, indent=2)
 
 
-# ============================================================================
-# Product Manager Tools
-# ============================================================================
 @tool
 def calculate_feature_prioritization(features_count: int = 6, complexity_tier: str = "medium") -> str:
     """Calculate RICE and MoSCoW distribution recommendations for scope definition."""
@@ -119,22 +111,6 @@ def estimate_sprint_velocity(team_size: int = 4, sprint_weeks: int = 2) -> str:
     }, indent=2)
 
 
-# ============================================================================
-# Risk Analyst Tools
-# ============================================================================
-@tool
-def lookup_security_threats(domain_category: str = "SaaS") -> str:
-    """Retrieve security threat vectors, compliance standards, and actionable mitigations."""
-    return json.dumps({
-        "domain": domain_category,
-        "core_threats": SECURITY_RISK_CATALOG["threats"],
-        "compliance_standards": SECURITY_RISK_CATALOG["compliance_standards"],
-    }, indent=2)
-
-
-# ============================================================================
-# Team Allocation Tools
-# ============================================================================
 @tool
 def get_role_compensation_card(roles: list[str] | None = None) -> str:
     """Look up industry-standard hourly rates, monthly FTE costs, and skill sets for engineering roles."""
@@ -145,9 +121,6 @@ def get_role_compensation_card(roles: list[str] | None = None) -> str:
     return json.dumps(all_roles, indent=2)
 
 
-# ============================================================================
-# Timeline Delivery Tools
-# ============================================================================
 @tool
 def calculate_critical_path_schedule(sprint_count: int = 4, has_external_dependencies: bool = False) -> str:
     """Calculate delivery timeline milestones, critical path buffers, and release readiness."""
@@ -168,7 +141,20 @@ def calculate_critical_path_schedule(sprint_count: int = 4, has_external_depende
 
 
 # ============================================================================
-# Integration & DevOps Tools
+# Risk Analyst Tools
+# ============================================================================
+@tool
+def lookup_security_threats(domain_category: str = "SaaS") -> str:
+    """Retrieve security threat vectors, compliance standards, and actionable mitigations."""
+    return json.dumps({
+        "domain": domain_category,
+        "core_threats": SECURITY_RISK_CATALOG["threats"],
+        "compliance_standards": SECURITY_RISK_CATALOG["compliance_standards"],
+    }, indent=2)
+
+
+# ============================================================================
+# Deployment Advisor Tools
 # ============================================================================
 @tool
 def get_devops_blueprints() -> str:
@@ -188,62 +174,39 @@ _TEXT_TOOLS = [
 
 
 # ============================================================================
-# Agent-to-Tools Registry Map (Domain Tools + Inter-Agent Calling + Text Tools)
+# Agent-to-Tools Registry (v2 — no inter-agent consultation)
 # ============================================================================
 AGENT_SPECIALIST_TOOLS: dict[str, list[Any]] = {
-    "ceo": [
+    "requirement_agent": [
         evaluate_market_and_business_model,
-        consult_product_manager,
-        consult_system_architect,
-        *_TEXT_TOOLS,
-    ],
-    "product_manager": [
         calculate_feature_prioritization,
-        consult_system_architect,
-        consult_risk_analyst,
         *_TEXT_TOOLS,
     ],
-    "architect": [
+    "architect_agent": [
         lookup_architecture_stack,
         calculate_infrastructure_sizing,
-        consult_risk_analyst,
-        consult_integration_agent,
-        consult_product_manager,
         *_TEXT_TOOLS,
     ],
-    "sprint_planner": [
+    "sprint_planner_agent": [
         estimate_sprint_velocity,
-        consult_system_architect,
-        consult_team_allocation,
-        *_TEXT_TOOLS,
-    ],
-    "risk": [
-        lookup_security_threats,
-        consult_system_architect,
-        consult_integration_agent,
-        *_TEXT_TOOLS,
-    ],
-    "team_allocation": [
         get_role_compensation_card,
-        consult_sprint_planner,
-        consult_system_architect,
-        *_TEXT_TOOLS,
-    ],
-    "timeline": [
         calculate_critical_path_schedule,
-        consult_sprint_planner,
-        consult_team_allocation,
         *_TEXT_TOOLS,
     ],
-    "integration": [
+    "github_monitor": [
+        *_TEXT_TOOLS,
+    ],
+    "risk_agent": [
+        lookup_security_threats,
+        *_TEXT_TOOLS,
+    ],
+    "deployment_advisor": [
         get_devops_blueprints,
-        consult_system_architect,
-        consult_risk_analyst,
         *_TEXT_TOOLS,
     ],
 }
 
 
 def get_tools_for_agent(agent_id: str) -> list[Any]:
-    """Return the list of specialist and inter-agent tools assigned to a given agent."""
+    """Return the list of specialist tools assigned to a given agent."""
     return AGENT_SPECIALIST_TOOLS.get(agent_id, [])

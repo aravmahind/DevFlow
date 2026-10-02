@@ -22,7 +22,7 @@ load_runtime_env()
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 # Cloud APIs (Groq) are fast; don't make a stuck request hang for 10 minutes.
 _default_timeout = "120" if LLM_PROVIDER.lower() != "ollama" else "600"
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", _default_timeout))

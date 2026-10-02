@@ -1,7 +1,12 @@
-"""The agent registry — the single source of truth for Devflow's AI org.
+"""The agent registry — the single source of truth for DEVFLOW's AI org (v2).
 
-Each entry binds an agent id to its human role, the orchestration-graph node it
-drives, its output schema, and its dedicated prompt module.
+6 rationalized agents replacing the previous 8:
+  - requirement_agent: Merges CEO + Product Manager
+  - architect_agent: System architecture (kept)
+  - sprint_planner_agent: Backlog + allocation + timeline (merges 3)
+  - github_monitor: New — analyzes GitHub activity
+  - risk_agent: Risk analysis (kept, enhanced)
+  - deployment_advisor: Replaces Integration Agent
 """
 from __future__ import annotations
 
@@ -9,36 +14,25 @@ from agents.base import Agent
 from agents import schemas
 from prompts import (
     architect,
-    ceo,
-    integration,
-    product_manager,
+    deployment_advisor,
+    github_monitor,
+    requirement_agent,
     risk,
     sprint_planner,
-    team_allocation,
-    timeline,
 )
 
 AGENTS: dict[str, Agent] = {
-    "ceo": Agent(
-        id="ceo",
-        name="CEO Agent",
-        role="Chief Vision Officer",
-        node="idea",
-        schema=schemas.ExecutiveSummary,
-        system_prompt=ceo.SYSTEM_PROMPT,
-        build_user_prompt=ceo.build_user_prompt,
-    ),
-    "product_manager": Agent(
-        id="product_manager",
-        name="Product Manager Agent",
-        role="Senior Product Manager",
+    "requirement_agent": Agent(
+        id="requirement_agent",
+        name="Requirement Agent",
+        role="Requirements Analyst & Product Strategist",
         node="requirements",
         schema=schemas.RequirementsBundle,
-        system_prompt=product_manager.SYSTEM_PROMPT,
-        build_user_prompt=product_manager.build_user_prompt,
+        system_prompt=requirement_agent.SYSTEM_PROMPT,
+        build_user_prompt=requirement_agent.build_user_prompt,
     ),
-    "architect": Agent(
-        id="architect",
+    "architect_agent": Agent(
+        id="architect_agent",
         name="System Architect Agent",
         role="Principal System Architect",
         node="architecture",
@@ -46,17 +40,26 @@ AGENTS: dict[str, Agent] = {
         system_prompt=architect.SYSTEM_PROMPT,
         build_user_prompt=architect.build_user_prompt,
     ),
-    "sprint_planner": Agent(
-        id="sprint_planner",
-        name="Sprint Planner Agent",
+    "sprint_planner_agent": Agent(
+        id="sprint_planner_agent",
+        name="Sprint Planner & Allocation Agent",
         role="Agile Delivery Lead",
-        node="tasks",
+        node="sprint_planning",
         schema=schemas.SprintPlan,
         system_prompt=sprint_planner.SYSTEM_PROMPT,
         build_user_prompt=sprint_planner.build_user_prompt,
     ),
-    "risk": Agent(
-        id="risk",
+    "github_monitor": Agent(
+        id="github_monitor",
+        name="GitHub Monitor Agent",
+        role="Development Progress Analyst",
+        node="execution",
+        schema=schemas.GitHubProgressReport,
+        system_prompt=github_monitor.SYSTEM_PROMPT,
+        build_user_prompt=github_monitor.build_user_prompt,
+    ),
+    "risk_agent": Agent(
+        id="risk_agent",
         name="Risk Agent",
         role="Risk Analyst",
         node="risk",
@@ -64,32 +67,14 @@ AGENTS: dict[str, Agent] = {
         system_prompt=risk.SYSTEM_PROMPT,
         build_user_prompt=risk.build_user_prompt,
     ),
-    "team_allocation": Agent(
-        id="team_allocation",
-        name="Team Allocation Agent",
-        role="VP of Engineering",
-        node="cost",
-        schema=schemas.TeamPlan,
-        system_prompt=team_allocation.SYSTEM_PROMPT,
-        build_user_prompt=team_allocation.build_user_prompt,
-    ),
-    "timeline": Agent(
-        id="timeline",
-        name="Timeline Agent",
-        role="Delivery Manager",
-        node="execution",
-        schema=schemas.TimelinePlan,
-        system_prompt=timeline.SYSTEM_PROMPT,
-        build_user_prompt=timeline.build_user_prompt,
-    ),
-    "integration": Agent(
-        id="integration",
-        name="Integration Agent",
-        role="Platform / DevOps Architect",
-        node="execution",
-        schema=schemas.IntegrationBundle,
-        system_prompt=integration.SYSTEM_PROMPT,
-        build_user_prompt=integration.build_user_prompt,
+    "deployment_advisor": Agent(
+        id="deployment_advisor",
+        name="Deployment Advisor",
+        role="Infrastructure & Deployment Advisor",
+        node="deployment",
+        schema=schemas.DeploymentRecommendation,
+        system_prompt=deployment_advisor.SYSTEM_PROMPT,
+        build_user_prompt=deployment_advisor.build_user_prompt,
     ),
 }
 

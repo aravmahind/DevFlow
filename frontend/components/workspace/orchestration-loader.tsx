@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useProjectStore } from '@/lib/project-store'
-import { retryProject } from '@/lib/api'
+import { retryProject, approveProject } from '@/lib/api'
 import {
   Lightbulb,
   Search,
@@ -37,41 +37,26 @@ interface AgentStage {
 
 const ORCHESTRATION_STAGES: { title: string; description: string; agents: AgentStage[] }[] = [
   {
-    title: 'Phase 1: Strategic Direction',
-    description: 'Executive framing, strategic constraints, and scope boundaries',
+    title: 'Phase 1: Requirements Analysis',
+    description: 'Executive vision, functional requirements, and user stories',
     agents: [
       {
-        id: 'ceo',
-        name: 'CEO Agent',
-        role: 'Chief Vision Officer',
-        deliverableKey: 'executive_summary',
-        deliverableLabel: 'Executive Summary & Decisions',
-        nodeId: 'idea',
-        icon: Lightbulb,
-      },
-    ],
-  },
-  {
-    title: 'Phase 2: Product Specifications',
-    description: 'Functional decomposition, user stories, and acceptance criteria',
-    agents: [
-      {
-        id: 'product_manager',
-        name: 'Product Manager Agent',
-        role: 'Senior Product Manager',
+        id: 'requirement_agent',
+        name: 'Requirement Agent',
+        role: 'Requirements Analyst & Product Strategist',
         deliverableKey: 'requirements',
-        deliverableLabel: 'Requirements & User Stories',
+        deliverableLabel: 'Vision & Requirements',
         nodeId: 'requirements',
         icon: Search,
       },
     ],
   },
   {
-    title: 'Phase 3: System Architecture',
+    title: 'Phase 2: System Architecture',
     description: 'Multi-layer system design, data entities, APIs, and infrastructure',
     agents: [
       {
-        id: 'architect',
+        id: 'architect_agent',
         name: 'System Architect Agent',
         role: 'Principal Architect',
         deliverableKey: 'architecture',
@@ -82,20 +67,41 @@ const ORCHESTRATION_STAGES: { title: string; description: string; agents: AgentS
     ],
   },
   {
-    title: 'Phase 4: Delivery & Risk Analysis (Parallel)',
-    description: 'Sprint backlog breakdown, risk modeling, and engineering staffing',
+    title: 'Phase 3: Sprint Planning',
+    description: 'Sprint backlog breakdown, team allocation, and timeline',
     agents: [
       {
-        id: 'sprint_planner',
+        id: 'sprint_planner_agent',
         name: 'Sprint Planner Agent',
         role: 'Agile Delivery Lead',
         deliverableKey: 'backlog',
-        deliverableLabel: 'Epics, Tasks & Story Points',
-        nodeId: 'tasks',
+        deliverableLabel: 'Delivery Plan & Allocation',
+        nodeId: 'sprint_planning',
         icon: ListChecks,
       },
+    ],
+  },
+  {
+    title: 'Phase 4: GitHub Monitoring (Parallel)',
+    description: 'Analyzing repository progress and active development',
+    agents: [
       {
-        id: 'risk',
+        id: 'github_monitor',
+        name: 'GitHub Monitor Agent',
+        role: 'Development Progress Analyst',
+        deliverableKey: 'github_progress',
+        deliverableLabel: 'GitHub Progress Report',
+        nodeId: 'execution',
+        icon: Terminal,
+      },
+    ],
+  },
+  {
+    title: 'Phase 5: Risk & Deployment (Parallel)',
+    description: 'Risk matrix and infrastructure deployment strategies',
+    agents: [
+      {
+        id: 'risk_agent',
         name: 'Risk Analyst Agent',
         role: 'Security & Risk Lead',
         deliverableKey: 'risks',
@@ -104,36 +110,12 @@ const ORCHESTRATION_STAGES: { title: string; description: string; agents: AgentS
         icon: ShieldAlert,
       },
       {
-        id: 'team_allocation',
-        name: 'Team Allocation Agent',
-        role: 'VP of Engineering',
-        deliverableKey: 'team',
-        deliverableLabel: 'Staffing & Budget Projections',
-        nodeId: 'cost',
-        icon: Users,
-      },
-    ],
-  },
-  {
-    title: 'Phase 5: Roadmap & Platform Integration (Parallel)',
-    description: 'Milestone delivery timeline and DevOps deployment automation',
-    agents: [
-      {
-        id: 'timeline',
-        name: 'Timeline Agent',
-        role: 'Delivery Manager',
-        deliverableKey: 'timeline',
-        deliverableLabel: 'Delivery Schedule & Gates',
-        nodeId: 'execution',
-        icon: CalendarRange,
-      },
-      {
-        id: 'integration',
-        name: 'Integration Agent',
-        role: 'DevOps / Platform Architect',
-        deliverableKey: 'integrations',
-        deliverableLabel: 'CI/CD & Integration Blueprints',
-        nodeId: 'execution',
+        id: 'deployment_advisor',
+        name: 'Deployment Advisor',
+        role: 'Infrastructure & Deployment Advisor',
+        deliverableKey: 'deployment_recommendations',
+        deliverableLabel: 'Infrastructure Recommendations',
+        nodeId: 'deployment',
         icon: Plug,
       },
     ],
@@ -266,6 +248,59 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
           </div>
         </div>
       </div>
+
+      {project?.status === 'awaiting_approval' && project?.pending_approval && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <ShieldAlert className="w-6 h-6 text-amber-600" />
+            <h2 className="text-lg font-bold text-amber-900">Manager Approval Required</h2>
+          </div>
+          <p className="text-amber-800 text-sm mb-6">
+            The workflow has paused at phase: <strong>{project.pending_approval}</strong>. Please review the generated artifacts and either approve to continue, or provide feedback to revise them.
+          </p>
+          <div className="flex flex-col gap-3">
+            <textarea
+              id="feedback-input"
+              className="w-full border border-amber-300 rounded-md p-3 text-sm focus:ring-amber-500 focus:border-amber-500 bg-white"
+              rows={3}
+              placeholder="Optional: Provide feedback for revision if rejecting..."
+            />
+            <div className="flex gap-3 mt-2">
+              <button
+                className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700"
+                onClick={async () => {
+                  const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
+                  try {
+                    await approveProject(project.id, project.pending_approval, true, fb)
+                    // UI will auto-update via polling / WebSocket
+                  } catch (err) {
+                    console.error('Failed to approve:', err)
+                    alert('Failed to approve project.')
+                  }
+                }}
+              >
+                Approve & Continue
+              </button>
+              <button
+                className="px-4 py-2 bg-white text-rose-600 border border-rose-300 rounded-md text-sm font-semibold hover:bg-rose-50"
+                onClick={async () => {
+                  const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
+                  if (!fb) { alert('Please provide feedback for revision'); return; }
+                  try {
+                    await approveProject(project.id, project.pending_approval, false, fb)
+                    // UI will auto-update via polling / WebSocket
+                  } catch (err) {
+                    console.error('Failed to reject:', err)
+                    alert('Failed to reject project.')
+                  }
+                }}
+              >
+                Reject & Revise
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Grid: Orchestration Phases + Real-time Activity Log */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">

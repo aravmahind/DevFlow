@@ -205,3 +205,17 @@ export async function revokeProjectInvite(projectId:string,inviteId:string){cons
 export async function updateMyRole(role:string,specialization?:string){const res=await fetch(endpoint.myRole(),{method:'PUT',headers:await authHeaders(true),body:JSON.stringify({role,specialization})});return jsonOrThrow(res)}
 export async function updateMySpecialization(specialization:string){const res=await fetch(endpoint.myRole(),{method:'PUT',headers:await authHeaders(true),body:JSON.stringify({role:'developer',specialization})});return jsonOrThrow(res)}
 export async function acceptProjectInvite(inviteId:string):Promise<{status:string}>{const res=await fetch(endpoint.acceptProjectInviteEndpoint(inviteId),{method:'POST',headers:await authHeaders(true)});return jsonOrThrow(res)}
+
+export async function approveProject(
+  projectId: string,
+  phase: string,
+  approved: boolean,
+  feedback: string = ''
+): Promise<any> {
+  const res = await fetch(endpoint.projectAction(projectId, 'approve'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({ phase, approved, feedback }),
+  })
+  return jsonOrThrow(res)
+}

@@ -1,8 +1,7 @@
-"""Agent-scoped project context retrieval.
+"""Agent-scoped project context retrieval (v2 — 6-agent roster).
 
-This is deliberately a tool instead of dumping all workflow state into every
-prompt. Each specialist receives the full records it depends on, while derived
-artifacts (diagram coordinates, Mermaid text and cost calculations) are omitted.
+Maps each agent to the upstream sections it depends on, so downstream
+agents receive only what they need instead of the entire accumulated state.
 """
 from __future__ import annotations
 
@@ -12,14 +11,12 @@ from typing import Any
 from langchain_core.tools import tool
 
 DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "ceo": (),
-    "product_manager": ("executive_summary",),
-    "architect": ("executive_summary", "requirements"),
-    "sprint_planner": ("executive_summary", "requirements", "architecture"),
-    "risk": ("executive_summary", "requirements", "architecture"),
-    "team_allocation": ("executive_summary", "architecture", "backlog"),
-    "timeline": ("executive_summary", "architecture", "backlog", "team"),
-    "integration": ("executive_summary", "requirements", "architecture"),
+    "requirement_agent": (),
+    "architect_agent": ("requirements",),
+    "sprint_planner_agent": ("requirements", "architecture"),
+    "github_monitor": ("backlog",),
+    "risk_agent": ("requirements", "architecture", "backlog", "github_progress"),
+    "deployment_advisor": ("requirements", "architecture", "risks"),
 }
 
 _DERIVED_ARCHITECTURE_KEYS = {"diagram", "mermaid"}
@@ -84,16 +81,9 @@ def select_project_context(agent_id: str, project_context: dict[str, Any]) -> st
         if key == "architecture" and isinstance(value, dict):
             value = {k: v for k, v in value.items() if k not in _DERIVED_ARCHITECTURE_KEYS}
         if value is not None:
-            selected[key] = _compact_section(agent_id, key, value)
-    encoded = json.dumps(selected, ensure_ascii=False, separators=(",", ":"), default=str)
-    # Keep a valid JSON envelope even if unusually verbose user content remains.
-    if len(encoded) > 5000:
-        selected["context_budget_note"] = "Some long upstream fields were omitted; retrieved evidence remains available."
-        for key in list(DEPENDENCIES.get(agent_id, ()))[::-1]:
-            value = selected.get(key)
-            if isinstance(value, dict):
-                selected[key] = {name: item for name, item in list(value.items())[:3]}
-            encoded = json.dumps(selected, ensure_ascii=False, separators=(",", ":"), default=str)
-            if len(encoded) <= 5000:
-                break
-    return encoded
+            selected[key] = value
+    result = json.dumps(selected, ensure_ascii=False, separators=(",", ":"), default=str)
+    # Truncate to stay within free-tier TPM limits (~2500 chars ≈ 700 tokens)
+    if len(result) > 2500:
+        result = result[:2500] + '..."}'
+    return result

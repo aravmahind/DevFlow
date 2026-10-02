@@ -8,29 +8,24 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 # Orchestration graph nodes (must match the frontend graph).
-NODE_IDS = ["idea", "requirements", "architecture", "tasks", "sprint", "risk", "cost", "execution"]
+NODE_IDS = ["requirements", "architecture", "sprint_planning", "execution", "risk", "deployment"]
 NODE_LABELS = {
-    "idea": "Idea Intake",
-    "requirements": "Requirements",
-    "architecture": "Architecture",
-    "tasks": "Task Generation",
-    "sprint": "Sprint Plan",
+    "requirements": "Requirements Analysis",
+    "architecture": "System Architecture",
+    "sprint_planning": "Sprint Planning",
+    "execution": "GitHub Monitoring",
     "risk": "Risk Analysis",
-    "cost": "Cost Estimate",
-    "execution": "Execution Plan",
+    "deployment": "Deployment Strategy",
 }
 
 # Sections of the project document the agents populate.
 SECTION_KEYS = [
-    "executive_summary",
     "requirements",
     "architecture",
     "backlog",
+    "github_progress",
     "risks",
-    "team",
-    "cost",
-    "timeline",
-    "integrations",
+    "deployment_recommendations",
 ]
 
 
@@ -120,6 +115,15 @@ def new_project_doc(idea: str, title: Optional[str] = None, manager_inputs: Opti
             },
             "logs": [],
         },
+        # Human-in-the-loop and iteration state
+        "approvals": {},
+        "manager_feedback": [],
+        "pending_approval": None,
+        "current_sprint": 1,
+        "sprint_history": [],
+        # Team state
+        "team_members": [],
+        "assignments": [],
         # Section payloads — populated as agents complete.
         **{key: None for key in SECTION_KEYS},
     }

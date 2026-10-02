@@ -20,7 +20,7 @@ class ExecutiveSummary(BaseModel):
 
 async def main():
     chat = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         groq_api_key=os.environ.get("GROQ_API") or GROQ_API_KEY,
         max_tokens=2500,
     )

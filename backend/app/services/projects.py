@@ -14,6 +14,25 @@ logger = get_logger("services.projects")
 _MAX_LOGS = 250
 _UNSET = object()
 
+# Maps LangGraph node names → project orchestration node IDs.
+# The ai-services graph uses names like "architect_agent" but the project
+# document uses shorter IDs like "architecture" for status tracking.
+_LANGGRAPH_NODE_TO_ORCH_ID: dict[str, str] = {
+    "requirement_agent": "requirements",
+    "architect_agent": "architecture",
+    "sprint_planner_agent": "sprint_planning",
+    "github_monitor": "execution",
+    "risk_agent": "risk",
+    "deployment_advisor": "deployment",
+    # Approval gates and utility nodes — no matching orchestration node
+    "await_req_approval": "requirements",
+    "await_arch_approval": "architecture",
+    "await_sprint_approval": "sprint_planning",
+    "await_sprint_review": "execution",
+    "mark_complete": "",
+    "increment_sprint": "",
+}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -317,10 +336,31 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
     now = _now()
     if etype == "node_update" and event.get("node"):
         node = event["node"]
-        doc["orchestration"]["nodes"][node].update(
-            status=event.get("status", "idle"), progress=event.get("progress", 0)
-        )
-        doc["orchestration"]["current_node"] = node
+        # Translate LangGraph node name → orchestration node ID
+        orch_id = _LANGGRAPH_NODE_TO_ORCH_ID.get(node, node)
+        doc["orchestration"]["current_node"] = orch_id or node
+        state_update = event.get("state", {})
+        
+        # Mark node as complete if it yielded a state update
+        if orch_id and orch_id in doc["orchestration"]["nodes"]:
+            doc["orchestration"]["nodes"][orch_id].update(status="complete", progress=100)
+            
+        # Extract section payloads from state update
+        for key in ["requirements", "architecture", "backlog", "github_progress", "risks", "deployment_recommendations"]:
+            if key in state_update:
+                doc[key] = state_update[key]
+                await add_ai_response(
+                    project_id, doc["user_id"], f"section:{key}", payload=state_update[key]
+                )
+                
+        # Extract iteration state
+        for key in ["approvals", "manager_feedback", "pending_approval"]:
+            if key in state_update:
+                doc[key] = state_update[key]
+                
+    elif etype == "paused_for_approval":
+        doc["pending_approval"] = event.get("pending_approval")
+        doc["status"] = "awaiting_approval"
     elif etype == "log":
         doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
             "agent": event.get("agent"), "level": event.get("level", "info"),
@@ -328,18 +368,8 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
         }])[-_MAX_LOGS:]
     elif etype == "progress":
         doc["progress"] = event.get("progress", 0)
-    elif etype == "error":
+    elif etype == "error" or etype == "run_failed":
         doc["error"] = event.get("message")
-    elif etype == "run_failed":
-        doc["error"] = event.get("message")
-    elif etype == "supervisor_review":
-        await add_ai_response(
-            project_id, doc["user_id"], "supervisor_review", payload=event
-        )
-    elif etype == "supervisor_directive":
-        await add_ai_response(
-            project_id, doc["user_id"], "supervisor_directive", payload=event
-        )
     else:
         return
     doc["updated_at"] = now

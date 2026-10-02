@@ -21,42 +21,15 @@ class AIServicesClient:
         )
 
     async def stream_workflow(
-        self, project_id: str, idea: str, title: Optional[str]
+        self, project_id: str, idea: str, title: Optional[str], state_updates: Optional[dict[str, Any]] = None
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream orchestration events in real time from ai-services over HTTP."""
         url = f"{self._base_url}/workflow/stream"
-        payload = {"project_id": project_id, "idea": idea, "title": title}
-        timeout = httpx.Timeout(settings.run_timeout_seconds, connect=15.0)
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, json=payload, headers=self._headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("data:"):
-                        line = line[5:].strip()
-                    try:
-                        event = json.loads(line)
-                        yield event
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-
-    async def stream_retry(
-        self,
-        project_id: str,
-        idea: str,
-        title: Optional[str] = None,
-        target_agents: Optional[list[str]] = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """Stream retry events in real time from ai-services over HTTP."""
-        url = f"{self._base_url}/workflow/stream-retry"
         payload = {
-            "project_id": project_id,
-            "idea": idea,
+            "project_id": project_id, 
+            "idea": idea, 
             "title": title,
-            "target_agents": target_agents,
+            "state_updates": state_updates or {}
         }
         timeout = httpx.Timeout(settings.run_timeout_seconds, connect=15.0)
 
@@ -75,27 +48,33 @@ class AIServicesClient:
                     except (json.JSONDecodeError, TypeError):
                         continue
 
-    async def run_workflow(self, project_id: str, idea: str, title: Optional[str]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{self._base_url}/workflow/run",
-                json={"project_id": project_id, "idea": idea, "title": title},
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+    async def approve_workflow(
+        self, project_id: str, phase: str, approved: bool, feedback: str = ""
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream orchestration events in real time after human approval."""
+        url = f"{self._base_url}/workflow/approve"
+        payload = {
+            "project_id": project_id,
+            "phase": phase,
+            "approved": approved,
+            "feedback": feedback
+        }
+        timeout = httpx.Timeout(settings.run_timeout_seconds, connect=15.0)
 
-    async def retry_workflow(
-        self, project_id: str, idea: str, title: Optional[str] = None, target_agents: Optional[list[str]] = None
-    ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{self._base_url}/workflow/retry",
-                json={"project_id": project_id, "idea": idea, "title": title, "target_agents": target_agents},
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload, headers=self._headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    try:
+                        event = json.loads(line)
+                        yield event
+                    except (json.JSONDecodeError, TypeError):
+                        continue
 
     async def chat(
         self, project: dict[str, Any], message: str, history: list[dict[str, str]]

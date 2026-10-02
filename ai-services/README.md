@@ -154,7 +154,7 @@ To help test and monitor agent APIs, this service runs a FastAPI endpoint on por
   "dependencies": {
     "database": "healthy",
     "rag": "healthy",
-    "llm": "healthy (Groq Cloud - llama-3.3-70b-versatile)"
+    "llm": "healthy (Groq Cloud - openai/gpt-oss-120b)"
   }
 }
 ```
@@ -173,9 +173,9 @@ Ensure `ai-services/.env` or the root `.env` contains:
 DATABASE_URL=postgresql://postgres:[PASSWORD]@[YOUR-HOST]:5432/postgres
 LLM_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key
-LLM_MODEL=llama-3.3-70b-versatile
-LLM_MODEL_SMART=llama-3.3-70b-versatile
-LLM_MODEL_FAST=llama-3.1-8b-instant
+LLM_MODEL=openai/gpt-oss-120b
+LLM_MODEL_SMART=openai/gpt-oss-120b
+LLM_MODEL_FAST=openai/gpt-oss-20b
 LLM_QUALITY_REVIEW=false
 ```
 

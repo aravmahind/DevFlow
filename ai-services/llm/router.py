@@ -17,10 +17,10 @@ load_runtime_env()
 logger = get_logger("llm.router")
 
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+DEFAULT_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 SMART_MODEL = os.getenv("LLM_MODEL_SMART", DEFAULT_MODEL)
-FAST_MODEL = os.getenv("LLM_MODEL_FAST", "llama-3.1-8b-instant")
-SECONDARY_MODEL = os.getenv("LLM_MODEL_SECONDARY", "allam-2-7b")
+FAST_MODEL = os.getenv("LLM_MODEL_FAST", "openai/gpt-oss-20b")
+SECONDARY_MODEL = os.getenv("LLM_MODEL_SECONDARY", "openai/gpt-oss-20b")
 
 
 @dataclass(frozen=True)
@@ -31,16 +31,24 @@ class ModelConfig:
 
 
 _PROFILES: dict[str, ModelConfig] = {
-    "ceo": ModelConfig(SMART_MODEL, 0.5, 1000),
-    "product_manager": ModelConfig(SMART_MODEL, 0.4, 2600),
-    "architect": ModelConfig(SMART_MODEL, 0.35, 2200),
-    "sprint_planner": ModelConfig(FAST_MODEL, 0.3, 2600),
-    "risk": ModelConfig(SMART_MODEL, 0.35, 2600),
-    "team_allocation": ModelConfig(FAST_MODEL, 0.4, 1000),
-    "timeline": ModelConfig(SMART_MODEL, 0.35, 1200),
-    "integration": ModelConfig(SMART_MODEL, 0.35, 2200),
-    "ceo_review": ModelConfig(SMART_MODEL, 0.2, 700),
+    # SMART agents use FAST_MODEL (gpt-oss-20b) because the 120b reasoning model
+    # burns its entire max_tokens budget on hidden reasoning_content, leaving
+    # nothing for visible .content output (finish_reason=length, empty JSON).
+    "requirement_agent": ModelConfig(FAST_MODEL, 0.4, 4096),
+    "architect_agent": ModelConfig(FAST_MODEL, 0.35, 4096),
+    "sprint_planner_agent": ModelConfig(FAST_MODEL, 0.3, 4096),
+    "github_monitor": ModelConfig(FAST_MODEL, 0.3, 1500),
+    "risk_agent": ModelConfig(FAST_MODEL, 0.4, 1500),
+    "deployment_advisor": ModelConfig(FAST_MODEL, 0.4, 2000),
 }
+
+
+def _groq_otpm_cap() -> int | None:
+    """Return the Groq output-token ceiling, or None when not on Groq."""
+    from llm.client import LLM_PROVIDER
+    if LLM_PROVIDER.lower() != "groq":
+        return None
+    return int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "6000"))
 
 
 def resolve(agent_id: str) -> ModelConfig:
@@ -48,7 +56,16 @@ def resolve(agent_id: str) -> ModelConfig:
     override = os.getenv(f"LLM_MODEL_{agent_id.upper()}")
     if override:
         logger.info("Agent %s routed to override model %s", agent_id, override)
-        return ModelConfig(override, base.temperature, base.max_tokens)
+        base = ModelConfig(override, base.temperature, base.max_tokens)
+
+    # Clamp max_tokens to Groq's per-model OTPM ceiling to avoid hard 429 rejections
+    cap = _groq_otpm_cap()
+    if cap is not None and base.max_tokens > cap:
+        logger.warning(
+            "Agent %s max_tokens %d exceeds Groq OTPM cap %d; clamping to %d",
+            agent_id, base.max_tokens, cap, cap,
+        )
+        return ModelConfig(base.model, base.temperature, cap)
     return base
 
 

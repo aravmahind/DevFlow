@@ -80,6 +80,32 @@ async def retry_project(
     return AnalyzeResponse(project_id=project_id, status="queued")
 
 
+class ApproveRequest(BaseModel):
+    phase: str = Field(..., description="The workflow phase being approved")
+    approved: bool = Field(..., description="Whether the manager approved it")
+    feedback: str = Field(default="", description="Manager's feedback if rejected")
+
+
+@router.post("/{project_id}/approve", response_model=AnalyzeResponse, status_code=202)
+async def approve_project(
+    project_id: str, req: ApproveRequest, user: CurrentUser = Depends(current_user)
+) -> AnalyzeResponse:
+    """Approve or reject a LangGraph workflow phase and resume execution."""
+    doc = await project_service.get_project(project_id, user.id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="project not found")
+        
+    role = await project_service.project_role(project_id, user.id)
+    if role not in {"manager"}:
+        raise HTTPException(status_code=403, detail="approval permission required")
+        
+    await project_service.set_status(project_id, "running", progress=doc.get("progress", 0))
+    from app.orchestrator.manager import enqueue_approval
+    await enqueue_approval(project_id, req.phase, req.approved, req.feedback)
+    
+    return AnalyzeResponse(project_id=project_id, status="running")
+
+
 @router.post("/{project_id}/chat")
 async def chat(
     project_id: str, req: ChatRequest, user: CurrentUser = Depends(current_user)

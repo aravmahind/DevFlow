@@ -67,7 +67,7 @@ const groups: SidebarGroup[] = [
       { mode: 'cost', label: 'Cost & Budget', icon: <DollarSign /> },
       { mode: 'team', label: 'AI Organization', icon: <Users /> },
       { mode: 'members', label: 'Team Members', icon: <ShieldCheck /> },
-      { mode: 'integrations', label: 'DevOps & CI/CD', icon: <Plug /> },
+      { mode: 'integrations', label: 'Deployment Strategy', icon: <Plug /> },
     ],
   },
   {

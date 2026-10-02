@@ -1,13 +1,16 @@
-"""AI-services HTTP API.
+"""AI-services HTTP API (v2 — LangGraph).
 
 * ``GET  /agents``                  list the AI org
 * ``POST /agents/{agent_id}/run``   run one agent independently (testable)
-* ``POST /workflow/run``            execute the full orchestration graph
+* ``POST /workflow/stream``         execute the LangGraph orchestration (streams updates)
+* ``POST /workflow/approve``        resume the graph after human approval
+* ``POST /assistant/chat``          chat with project state
 """
 from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,15 +19,12 @@ from pydantic import BaseModel, Field
 
 from agents.registry import AGENTS, get_agent
 from api.auth import require_internal_auth
+from graph.orchestrator import get_compiled_graph
 from services.assistant import chat as assistant_chat
 from utils.logging import get_logger
-from workflows.engine import WorkflowEngine
 
 logger = get_logger("api")
 router = APIRouter(dependencies=[Depends(require_internal_auth)])
-
-# Keep references to background workflow tasks so they aren't garbage-collected.
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 class AgentRunRequest(BaseModel):
@@ -38,6 +38,17 @@ class WorkflowRunRequest(BaseModel):
     project_id: str
     idea: str
     title: str | None = None
+    state_updates: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional initial state overrides"
+    )
+
+
+class ApprovalRequest(BaseModel):
+    project_id: str
+    phase: str
+    approved: bool
+    feedback: str = ""
 
 
 class ChatMessage(BaseModel):
@@ -70,121 +81,176 @@ async def run_agent(agent_id: str, req: AgentRunRequest) -> dict[str, Any]:
     if not req.context.get("idea"):
         raise HTTPException(status_code=422, detail="context.idea is required")
     try:
-        data = await agent.run(req.context)
+        # Note: Type hinting in agent.run expects ProjectState, but passing dict works at runtime.
+        data = await agent.run(req.context) # type: ignore
     except Exception as exc:
         logger.exception("Agent %s failed", agent_id)
         raise HTTPException(status_code=502, detail=f"agent execution failed: {exc}")
     return {"agent": agent_id, "node": agent.node, "data": data}
 
 
-class WorkflowRetryRequest(BaseModel):
-    project_id: str
-    idea: str | None = None
-    title: str | None = None
-    target_agents: list[str] | None = None
-
-
-async def _run_workflow(
-    project_id: str,
-    idea: str,
-    title: str | None,
-    target_agents: list[str] | None = None,
-) -> None:
-    engine = WorkflowEngine(project_id)
-    try:
-        await engine.run(idea, title, only_missing=True, target_agents=target_agents)
-    except Exception:
-        logger.exception("Workflow crashed for project %s", project_id)
-
-
 @router.post("/workflow/stream")
 async def stream_workflow(req: WorkflowRunRequest) -> StreamingResponse:
-    """Stream workflow progress events in real-time as newline-delimited JSON."""
+    """Stream LangGraph progress events in real-time as newline-delimited JSON."""
     async def event_generator():
-        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        engine = WorkflowEngine(req.project_id, listener=queue)
-
-        async def run_task():
-            try:
-                await engine.run(req.idea, req.title, only_missing=True)
-            except Exception as exc:
-                logger.exception("Workflow failed for %s", req.project_id)
-                await queue.put({
-                    "type": "error",
-                    "node": "workflow",
-                    "agent": "engine",
-                    "message": str(exc),
-                })
-            finally:
-                await queue.put(None)
-
-        task = asyncio.create_task(run_task())
         try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                yield json.dumps(event, default=str) + "\n"
-        finally:
-            if not task.done():
-                task.cancel()
+            compiled = await get_compiled_graph()
+            config = {"configurable": {"thread_id": req.project_id}}
+            
+            # Prepare initial state
+            initial_state = {
+                "project_id": req.project_id,
+                "idea": req.idea,
+                "title": req.title or req.idea[:50],
+                **req.state_updates
+            }
+
+            # Start or resume the graph
+            async for event in compiled.astream(initial_state, config, stream_mode=["updates", "debug"]):
+                if len(event) == 2 and isinstance(event[0], str):
+                    mode, payload = event
+                    
+                    if mode == "debug" and payload.get("type") == "task:runs":
+                        node_name = payload.get("payload", {}).get("name")
+                        if node_name and not node_name.startswith("__"):
+                            yield json.dumps({
+                                "type": "log",
+                                "agent": node_name,
+                                "level": "info",
+                                "message": f"Starting {node_name} processing...",
+                                "ts": datetime.now(timezone.utc).isoformat()
+                            }) + "\n"
+                            
+                    elif mode == "updates":
+                        # payload is a dict mapping node_name -> state_update
+                        for node, state_update in payload.items():
+                            msg = {
+                                "type": "node_update",
+                                "node": node,
+                                "state": state_update
+                            }
+                            yield json.dumps(msg, default=str) + "\n"
+
+            # Check if graph ended or paused for approval
+            final_state = await compiled.aget_state(config)
+            if final_state.next:
+                # Graph paused at an interrupt
+                next_node = final_state.next[0]
+                pending = final_state.values.get("pending_approval")
+                if not pending:
+                    if next_node == "await_req_approval": pending = "requirements"
+                    elif next_node == "await_arch_approval": pending = "architecture"
+                    elif next_node == "await_sprint_approval": pending = "sprint_planning"
+                    elif next_node == "await_sprint_review": pending = "sprint_review"
+                
+                yield json.dumps({
+                    "type": "paused_for_approval",
+                    "pending_approval": pending
+                }) + "\n"
+            else:
+                yield json.dumps({"type": "run_complete"}) + "\n"
+
+        except Exception as exc:
+            logger.exception("Workflow failed for %s", req.project_id)
+            yield json.dumps({
+                "type": "error",
+                "message": str(exc),
+            }) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 
-@router.post("/workflow/stream-retry")
-async def stream_retry_workflow(req: WorkflowRetryRequest) -> StreamingResponse:
-    """Stream retry workflow events in real-time as newline-delimited JSON."""
+@router.post("/workflow/approve")
+async def approve_workflow(req: ApprovalRequest) -> StreamingResponse:
+    """Resume the LangGraph workflow after human approval/feedback."""
     async def event_generator():
-        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        engine = WorkflowEngine(req.project_id, listener=queue)
-        idea = req.idea or ""
-
-        async def run_task():
-            try:
-                await engine.run(idea, req.title, only_missing=True, target_agents=req.target_agents)
-            except Exception as exc:
-                logger.exception("Workflow retry failed for %s", req.project_id)
-                await queue.put({
-                    "type": "error",
-                    "node": "workflow",
-                    "agent": "engine",
-                    "message": str(exc),
-                })
-            finally:
-                await queue.put(None)
-
-        task = asyncio.create_task(run_task())
         try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                yield json.dumps(event, default=str) + "\n"
-        finally:
-            if not task.done():
-                task.cancel()
+            compiled = await get_compiled_graph()
+            config = {"configurable": {"thread_id": req.project_id}}
+            state = await compiled.aget_state(config)
+            
+            if not state.next:
+                yield json.dumps({"type": "error", "message": "Graph is not paused."}) + "\n"
+                return
+
+            # Update state with approval decision
+            approvals = state.values.get("approvals", {})
+            approvals[req.phase] = {
+                "approved": req.approved,
+                "feedback": req.feedback,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            update: dict[str, Any] = {
+                "approvals": approvals,
+                "pending_approval": None,
+            }
+            
+            if not req.approved and req.feedback:
+                manager_feedback = state.values.get("manager_feedback", [])
+                manager_feedback.append({
+                    "phase": req.phase, 
+                    "feedback": req.feedback,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                update["manager_feedback"] = manager_feedback
+
+            # We MUST use `as_node=state.next[0]` to pretend the update came from the node that paused.
+            # Otherwise, LangGraph simply re-runs the paused node and asks for approval again!
+            await compiled.aupdate_state(config, update, as_node=state.next[0])
+            
+            # Resume execution by passing None as input
+            async for event in compiled.astream(None, config, stream_mode=["updates", "debug"]):
+                if len(event) == 2 and isinstance(event[0], str):
+                    mode, payload = event
+                    
+                    if mode == "debug" and payload.get("type") == "task:runs":
+                        node_name = payload.get("payload", {}).get("name")
+                        if node_name and not node_name.startswith("__"):
+                            yield json.dumps({
+                                "type": "log",
+                                "agent": node_name,
+                                "level": "info",
+                                "message": f"Starting {node_name} processing...",
+                                "ts": datetime.now(timezone.utc).isoformat()
+                            }) + "\n"
+                            
+                    elif mode == "updates":
+                        for node, state_update in payload.items():
+                            msg = {
+                                "type": "node_update",
+                                "node": node,
+                                "state": state_update
+                            }
+                            yield json.dumps(msg, default=str) + "\n"
+                    
+            # Check if graph ended or paused for approval
+            final_state = await compiled.aget_state(config)
+            if final_state.next:
+                # Graph paused at an interrupt
+                next_node = final_state.next[0]
+                pending = final_state.values.get("pending_approval")
+                if not pending:
+                    if next_node == "await_req_approval": pending = "requirements"
+                    elif next_node == "await_arch_approval": pending = "architecture"
+                    elif next_node == "await_sprint_approval": pending = "sprint_planning"
+                    elif next_node == "await_sprint_review": pending = "sprint_review"
+                
+                yield json.dumps({
+                    "type": "paused_for_approval",
+                    "pending_approval": pending
+                }) + "\n"
+            else:
+                yield json.dumps({"type": "run_complete"}) + "\n"
+
+        except Exception as exc:
+            logger.exception("Approval resume failed for %s", req.project_id)
+            yield json.dumps({
+                "type": "error",
+                "message": str(exc),
+            }) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
-
-
-@router.post("/workflow/run")
-async def run_workflow(req: WorkflowRunRequest) -> dict[str, Any]:
-    task = asyncio.create_task(_run_workflow(req.project_id, req.idea, req.title))
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
-    logger.info("Workflow accepted for project %s", req.project_id)
-    return {"status": "started", "project_id": req.project_id}
-
-
-@router.post("/workflow/retry")
-async def retry_workflow(req: WorkflowRetryRequest) -> dict[str, Any]:
-    idea = req.idea or ""
-    task = asyncio.create_task(_run_workflow(req.project_id, idea, req.title, req.target_agents))
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
-    logger.info("Workflow retry queued for project %s", req.project_id)
-    return {"status": "started", "project_id": req.project_id}
 
 
 @router.post("/assistant/chat")

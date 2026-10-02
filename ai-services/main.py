@@ -23,7 +23,7 @@ logger = get_logger("main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("ai-services starting (provider=%s, model=%s)",
-                os.getenv("LLM_PROVIDER", "groq"), os.getenv("LLM_MODEL", "llama-3.3-70b-versatile"))
+                os.getenv("LLM_PROVIDER", "groq"), os.getenv("LLM_MODEL", "openai/gpt-oss-120b"))
     yield
     await close_db()
     logger.info("ai-services shut down")
@@ -92,7 +92,7 @@ async def health_check():
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-    LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+    LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 
     if LLM_PROVIDER.lower() == "ollama":
         try:
