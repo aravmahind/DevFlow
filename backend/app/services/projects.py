@@ -78,11 +78,29 @@ async def list_projects(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
 
 
 async def _save_doc(project_id: str, doc: dict[str, Any]) -> None:
+    # Status is owned by set_status. Keeping the stored one here means a document
+    # read before a Stop (or any status change) can't write the old status back.
     await execute(
-        """UPDATE projects SET title=$2, status=$3, progress=$4, document=$5,
-           updated_at=NOW() WHERE id=$1""",
-        project_id, doc["title"], doc["status"], doc["progress"], doc,
+        """UPDATE projects SET title=$2, progress=$3,
+               document=$4::jsonb || jsonb_build_object('status', status),
+               updated_at=NOW() WHERE id=$1""",
+        project_id, doc["title"], doc["progress"], doc,
     )
+
+
+async def settle_active_nodes(project_id: str, status: str) -> None:
+    """Mark agents that were mid-run (thinking) as ``status`` when a run ends early."""
+    doc = await get_project(project_id)
+    if not doc:
+        return
+    nodes = (doc.get("orchestration") or {}).get("nodes") or {}
+    changed = False
+    for node in nodes.values():
+        if node.get("status") not in ("complete", "idle", "failed"):
+            node["status"] = status
+            changed = True
+    if changed:
+        await _save_doc(project_id, doc)
 
 
 async def set_status(
@@ -144,16 +162,78 @@ async def project_role(project_id: str, user_id: str) -> str | None:
     return str(row["role"]) if row else None
 
 
-def _set_path(document: dict[str, Any], path: str, value: Any) -> None:
+_PROTECTED_ROOTS = {
+    "id", "user_id", "workspace_id", "revision", "orchestration", "status", "progress",
+    "error", "approvals", "pending_approval", "manager_feedback", "created_at", "updated_at",
+}
+
+
+class EditError(ValueError):
+    """An edit that cannot be applied; the message names the path and why."""
+
+
+def _set_path(document: dict[str, Any], path: str, value: Any, op: str = "set") -> None:
+    """JSON-pointer style edit. ``op``: set (default), add (``/-`` appends to a
+    list, an index inserts), or remove."""
     parts = [part for part in path.strip("/").split("/") if part]
-    if not parts or parts[0] in {"id", "user_id", "workspace_id", "revision", "orchestration", "status"}:
-        raise ValueError("path is not editable")
+    if not parts or parts[0] in _PROTECTED_ROOTS:
+        raise EditError(f"{path or '/'} is not editable")
     cursor: Any = document
-    for part in parts[:-1]:
-        key: Any = int(part) if isinstance(cursor, list) else part
-        cursor = cursor[key]
-    key = int(parts[-1]) if isinstance(cursor, list) else parts[-1]
-    cursor[key] = value
+    try:
+        for part in parts[:-1]:
+            cursor = cursor[int(part)] if isinstance(cursor, list) else cursor[part]
+        last = parts[-1]
+        if isinstance(cursor, list):
+            if op == "add":
+                cursor.append(value) if last == "-" else cursor.insert(int(last), value)
+            elif op == "remove":
+                del cursor[int(last)]
+            else:
+                cursor[int(last)] = value
+        elif isinstance(cursor, dict):
+            if op == "remove":
+                del cursor[last]
+            else:
+                cursor[last] = value
+        else:
+            raise EditError(f"{path} does not point into an object or list")
+    except EditError:
+        raise
+    except (KeyError, IndexError, ValueError, TypeError):
+        raise EditError(f"{path} does not exist in this plan")
+
+
+async def apply_edits(
+    project_id: str, actor_id: str, edits: list[dict[str, Any]], operation: str = "flowmate",
+) -> dict[str, Any] | None:
+    """Apply several edits as ONE revision: all succeed, or none are saved (so a
+    single Undo reverts the whole batch). Raises EditError for a bad edit."""
+    import copy
+    import json as _json
+    async with pool().acquire() as conn:
+        await conn.set_type_codec("jsonb", encoder=_json.dumps, decoder=_json.loads, schema="pg_catalog")
+        async with conn.transaction():
+            row = await conn.fetchrow("SELECT document FROM projects WHERE id=$1 FOR UPDATE", project_id)
+            if not row:
+                return None
+            before = dict(row["document"])
+            after = copy.deepcopy(before)
+            for edit in edits:
+                _set_path(after, str(edit.get("path", "")), edit.get("value"), str(edit.get("op") or "set"))
+            after["revision"] = int(before.get("revision", 0)) + 1
+            after["updated_at"] = _now()
+            await conn.execute(
+                "UPDATE projects SET title=$2, document=$3, updated_at=NOW() WHERE id=$1",
+                project_id, after.get("title", before.get("title", "Untitled")), after,
+            )
+            await conn.execute(
+                """INSERT INTO project_revisions
+                   (project_id, actor_id, revision, operation, path, before_document, after_document)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                project_id, actor_id, after["revision"], operation,
+                ", ".join(str(e.get("path", "")) for e in edits)[:500], before, after,
+            )
+            return after
 
 
 async def edit_content(project_id: str, actor_id: str, path: str, value: Any, expected_revision: int | None = None, operation: str = "edit") -> dict[str, Any] | None:
@@ -339,12 +419,16 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
         # Translate LangGraph node name → orchestration node ID
         orch_id = _LANGGRAPH_NODE_TO_ORCH_ID.get(node, node)
         doc["orchestration"]["current_node"] = orch_id or node
-        state_update = event.get("state", {})
-        
+        state_update = event.get("state") or {}
+
         # Mark node as complete if it yielded a state update
-        if orch_id and orch_id in doc["orchestration"]["nodes"]:
-            doc["orchestration"]["nodes"][orch_id].update(status="complete", progress=100)
-            
+        nodes = doc["orchestration"]["nodes"]
+        if orch_id and orch_id in nodes:
+            nodes[orch_id].update(status="complete", progress=100)
+            done = sum(1 for n in nodes.values() if n.get("status") == "complete")
+            # 100% is reserved for run_complete.
+            doc["progress"] = max(int(doc.get("progress") or 0), min(95, round(100 * done / len(nodes))))
+
         # Extract section payloads from state update
         for key in ["requirements", "architecture", "backlog", "github_progress", "risks", "deployment_recommendations"]:
             if key in state_update:
@@ -362,6 +446,11 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
         doc["pending_approval"] = event.get("pending_approval")
         doc["status"] = "awaiting_approval"
     elif etype == "log":
+        orch_id = _LANGGRAPH_NODE_TO_ORCH_ID.get(str(event.get("agent")), "")
+        node_state = doc["orchestration"]["nodes"].get(orch_id)
+        if node_state and node_state.get("status") != "complete" and not str(event.get("agent", "")).startswith("await_"):
+            node_state.update(status="thinking")
+            doc["orchestration"]["current_node"] = orch_id
         doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
             "agent": event.get("agent"), "level": event.get("level", "info"),
             "message": event.get("message", ""), "ts": event.get("ts"),

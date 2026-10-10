@@ -1,13 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ReactFlow, Background, Controls, type Node, type Edge } from '@xyflow/react'
+import { ReactFlow, Background, Controls, MarkerType, Position, type Node, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Layout, Server, Database, Cloud, Lightbulb, TrendingUp } from 'lucide-react'
 import { useProjectStore } from '@/lib/project-store'
 import { GeneratingPanel } from './overview-view'
 import { InlineEditable } from './workspace-editor'
-import type { ArchitectureLayer } from '@/lib/project-types'
+import type { ArchitectureBundle, ArchitectureLayer, DiagramEdge, DiagramNode } from '@/lib/project-types'
 
 const LAYER_META: { key: string; label: string; icon: any; color: string; bg: string; border: string; text: string }[] = [
   { key: 'frontend', label: 'Frontend & Client Tier', icon: Layout, color: '#2563eb', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
@@ -16,16 +16,66 @@ const LAYER_META: { key: string; label: string; icon: any; color: string; bg: st
   { key: 'infrastructure', label: 'Cloud & Infrastructure', icon: Cloud, color: '#d97706', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
 ]
 
-const GROUP_X: Record<string, number> = { frontend: 30, backend: 280, database: 530, infrastructure: 780 }
+const GROUP_X: Record<string, number> = { frontend: 30, backend: 300, database: 570, infrastructure: 840 }
 const GROUP_COLOR: Record<string, string> = { frontend: '#2563eb', backend: '#7c3aed', database: '#059669', infrastructure: '#d97706' }
+
+const LAYER_KEYS = ['frontend', 'backend', 'database', 'infrastructure'] as const
+const LAYER_TITLES: Record<string, string> = { frontend: 'Frontend', backend: 'Backend', database: 'Database', infrastructure: 'Infrastructure' }
+const MAX_COMPONENTS = 6
+const norm = (t: unknown) => String(t ?? '').toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+
+/** Mirrors ai-services/services/diagram.py for plans generated before diagrams were stored. */
+function deriveDiagram(arch: ArchitectureBundle): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
+  const nodes: DiagramNode[] = []
+  const edges: DiagramEdge[] = []
+  const byName = new Map<string, string>()
+  for (const key of LAYER_KEYS) {
+    nodes.push({ id: `layer:${key}`, label: LAYER_TITLES[key], group: key, kind: 'layer' })
+    ;(arch[key]?.components || []).slice(0, MAX_COMPONENTS).forEach((comp, i) => {
+      const id = `${key}:${i}`
+      nodes.push({ id, label: String(comp), group: key, kind: 'component' })
+      if (!byName.has(norm(comp))) byName.set(norm(comp), id)
+    })
+  }
+  const resolve = (name: unknown) => {
+    const key = norm(name)
+    if (!key) return null
+    if (byName.has(key)) return byName.get(key)!
+    const matches = [...byName].filter(([n]) => n.includes(key) || key.includes(n))
+    return matches.length === 1 ? matches[0][1] : null
+  }
+  const seen = new Set<string>()
+  for (const flow of arch.data_flows || []) {
+    const src = resolve(flow?.source)
+    const dst = resolve(flow?.target)
+    if (src && dst && src !== dst && !seen.has(`${src}>${dst}`)) {
+      seen.add(`${src}>${dst}`)
+      edges.push({ id: `${src}=>${dst}`, source: src, target: dst, label: String(flow.label || '').slice(0, 40) })
+    }
+  }
+  const linked = new Set(edges.flatMap((e) => [e.source, e.target]))
+  for (const n of nodes) {
+    if (n.kind === 'component' && !linked.has(n.id)) {
+      edges.push({ id: `layer:${n.group}->${n.id}`, source: `layer:${n.group}`, target: n.id, label: '' })
+    }
+  }
+  if (seen.size === 0) {
+    edges.push(
+      { id: 'fe=>be', source: 'layer:frontend', target: 'layer:backend', label: 'API' },
+      { id: 'be=>db', source: 'layer:backend', target: 'layer:database', label: 'persists' },
+      { id: 'be=>infra', source: 'layer:backend', target: 'layer:infrastructure', label: 'deploys on' },
+    )
+  }
+  return { nodes, edges }
+}
 
 export function ArchitectureView() {
   const project = useProjectStore((s) => s.project)
   const arch = project?.architecture || null
 
   const { nodes, edges } = useMemo(() => {
-    const diagram = arch?.diagram
-    if (!diagram) return { nodes: [] as Node[], edges: [] as Edge[] }
+    if (!arch) return { nodes: [] as Node[], edges: [] as Edge[] }
+    const diagram = arch.diagram?.nodes?.length ? arch.diagram : deriveDiagram(arch)
     const counters: Record<string, number> = {}
     const nodes: Node[] = diagram.nodes.map((n) => {
       const idxInGroup = (counters[n.group] = (counters[n.group] ?? -1) + 1)
@@ -34,6 +84,8 @@ export function ArchitectureView() {
         id: n.id,
         data: { label: n.label },
         position: { x: GROUP_X[n.group] ?? 30, y: idxInGroup * 80 + 30 },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
         style: {
           background: isLayer ? GROUP_COLOR[n.group] ?? '#2563eb' : '#ffffff',
           color: isLayer ? '#ffffff' : '#0f172a',
@@ -52,6 +104,8 @@ export function ArchitectureView() {
       source: e.source,
       target: e.target,
       label: e.label || undefined,
+      type: 'smoothstep',
+      markerEnd: e.label ? { type: MarkerType.ArrowClosed, color: '#64748b' } : undefined,
       animated: !!e.label,
       style: { stroke: '#94a3b8', strokeWidth: 1.5 },
       labelStyle: { fill: '#475569', fontSize: 10, fontWeight: 500 },

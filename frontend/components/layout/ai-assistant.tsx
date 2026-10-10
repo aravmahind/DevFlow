@@ -2,12 +2,26 @@
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Send, Loader2, Minus, Bot } from 'lucide-react'
+import { Sparkles, Send, Loader2, Minus, Bot, Check, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/lib/project-store'
-import { askAssistant } from '@/lib/api'
+import { askAssistant, undoProject, type AssistantEdit } from '@/lib/api'
 
-type Msg = { role: 'user' | 'assistant'; content: string }
+type Msg = {
+  role: 'user' | 'assistant'
+  content: string
+  edits?: AssistantEdit[]
+  editError?: string | null
+  undone?: boolean
+}
+
+function describeEdit(e: AssistantEdit): string {
+  const where = e.path.replace(/^\//, '').replace(/\/(\d+)/g, ' #$1').replace(/\//g, ' › ').replace(/_/g, ' ')
+  if (e.op === 'remove') return `Removed ${where}`
+  if (e.op === 'add') return `Added to ${where.replace(/ › -$/, '')}`
+  return `Updated ${where}`
+}
 
 const QUICK = [
   'Summarize this plan in 3 bullets',
@@ -50,7 +64,7 @@ function Rich({ text }: { text: string }) {
 }
 
 export function AiAssistant() {
-  const { aiPanelOpen, setAiPanelOpen } = useAppStore()
+  const { aiPanelOpen, setAiPanelOpen } = useAppStore(useShallow((s) => ({ aiPanelOpen: s.aiPanelOpen, setAiPanelOpen: s.setAiPanelOpen })))
   const projectId = useProjectStore((s) => s.projectId)
   const project = useProjectStore((s) => s.project)
   const status = useProjectStore((s) => s.status)
@@ -78,6 +92,21 @@ export function AiAssistant() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, busy])
 
+  // Undo reverts the latest revision, so only the newest change set offers it.
+  const lastEditIndex = messages.reduce((last, m, i) => (m.edits?.length && !m.undone ? i : last), -1)
+  const undoEdits = async (index: number) => {
+    if (!projectId) return
+    try {
+      const { project: reverted } = await undoProject(projectId)
+      useProjectStore.getState().setProject(reverted)
+      setMessages((m) => m.map((msg, i) => (i === index ? { ...msg, undone: true } : msg)))
+    } catch (err) {
+      setMessages((m) => m.map((msg, i) => (i === index
+        ? { ...msg, editError: `Undo failed: ${err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : err}` }
+        : msg)))
+    }
+  }
+
   const send = async (text: string) => {
     const q = text.trim()
     if (!q || busy) return
@@ -95,9 +124,14 @@ export function AiAssistant() {
     setInput('')
     setBusy(true)
     try {
-      const { reply, project: changedProject } = await askAssistant(projectId, q, history)
+      const { reply, edits, edit_error, project: changedProject } = await askAssistant(
+        projectId, q, history.map(({ role, content }) => ({ role, content })),
+      )
       if (changedProject) useProjectStore.getState().setProject(changedProject)
-      setMessages((m) => [...m, { role: 'assistant', content: reply || 'No answer returned.' }])
+      setMessages((m) => [
+        ...m,
+        { role: 'assistant', content: reply || 'No answer returned.', edits: edits || [], editError: edit_error },
+      ])
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -167,6 +201,28 @@ export function AiAssistant() {
                     }`}
                   >
                     {m.role === 'assistant' ? <Rich text={m.content} /> : m.content}
+                    {!!m.edits?.length && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
+                        {m.edits.map((e, j) => (
+                          <div key={j} className="flex items-start gap-1.5 text-[11px] text-emerald-700">
+                            <Check className="w-3 h-3 mt-0.5 shrink-0" /> <span>{describeEdit(e)}</span>
+                          </div>
+                        ))}
+                        {m.undone ? (
+                          <p className="text-[11px] text-slate-500">Undone.</p>
+                        ) : i === lastEditIndex && (
+                          <button
+                            onClick={() => undoEdits(i)}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                          >
+                            <Undo2 className="w-3 h-3" /> Undo
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {m.editError && (
+                      <p className="mt-2 pt-2 border-t border-slate-200 text-[11px] text-amber-700">{m.editError}</p>
+                    )}
                   </div>
                 </div>
               ))}

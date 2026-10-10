@@ -59,7 +59,7 @@ def build_user_prompt(ctx: dict[str, Any]) -> str:
     if github_data:
         parts.append(
             "\nGitHub Activity Data:\n"
-            + json.dumps(github_data, default=str, indent=1)[:3000]
+            + json.dumps(github_data, default=str, separators=(",", ":"))[:6000]
         )
     else:
         parts.append(

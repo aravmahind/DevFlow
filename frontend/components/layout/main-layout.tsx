@@ -7,6 +7,7 @@ import { Sidebar } from './sidebar'
 import { AiAssistant } from './ai-assistant'
 import { AccountPanel } from './account-panel'
 import { useAppStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/lib/project-store'
 
 interface MainLayoutProps {
@@ -14,7 +15,7 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  const { sidebarCollapsed } = useAppStore()
+  const { sidebarCollapsed } = useAppStore(useShallow((s) => ({ sidebarCollapsed: s.sidebarCollapsed })))
   const searchParams = useSearchParams()
   const storeProjectId = useProjectStore((s) => s.projectId)
   const hasProject = Boolean(searchParams?.get('project') || storeProjectId)

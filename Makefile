@@ -1,10 +1,10 @@
-.PHONY: help dev build-dev up down restart ps logs health prune frontend-dev backend ai langflow local-backend local-ai local-frontend
+.PHONY: help dev build-dev up down restart ps logs health prune frontend-dev backend ai local-backend local-ai local-frontend
 
 help:
 	@echo "Devflow Management Commands:"
 	@echo ""
 	@echo "=== Docker Mode (Containers) ==="
-	@echo "  make dev            - Start containers in background (frontend, backend, ai, langflow)"
+	@echo "  make dev            - Start containers in background (frontend, backend, ai)"
 	@echo "  make build-dev      - Rebuild and start all containers"
 	@echo "  make down           - Stop and remove all containers"
 	@echo "  make logs           - Tail logs from all containers"
@@ -24,7 +24,6 @@ dev:
 	@echo "  Frontend:    http://localhost:3000"
 	@echo "  Backend API: http://localhost:8000/docs"
 	@echo "  AI Services: http://localhost:8001/docs"
-	@echo "  Langflow UI: http://localhost:7860"
 	@echo "======================================================="
 
 build-dev:
@@ -34,7 +33,6 @@ build-dev:
 	@echo "  Frontend:    http://localhost:3000"
 	@echo "  Backend API: http://localhost:8000/docs"
 	@echo "  AI Services: http://localhost:8001/docs"
-	@echo "  Langflow UI: http://localhost:7860"
 	@echo "======================================================="
 
 up: dev
@@ -49,8 +47,8 @@ logs:
 	docker compose logs -f
 
 # ---- Convenience ----
-up-backend:        ## Bring up API stack & Langflow (no dockerized frontend build)
-	docker compose up -d backend ai-services langflow
+up-backend:        ## Bring up API stack (no dockerized frontend build)
+	docker compose up -d backend ai-services
 
 restart:
 	docker compose restart
@@ -63,8 +61,6 @@ health:
 	@curl -sf http://localhost:8000/health | python3 -m json.tool 2>/dev/null || curl -sf http://localhost:8000/health || echo "Backend unreachable"
 	@echo "\n--- AI Services Health ---"
 	@curl -sf http://localhost:8001/health | python3 -m json.tool 2>/dev/null || curl -sf http://localhost:8001/health || echo "AI Services unreachable"
-	@echo "\n--- Langflow Health ---"
-	@curl -sf http://localhost:7860/health || echo "Langflow unreachable"
 
 frontend-dev: local-frontend
 
@@ -84,6 +80,3 @@ backend:
 
 ai:
 	docker compose exec ai-services bash
-
-langflow:
-	docker compose exec langflow bash

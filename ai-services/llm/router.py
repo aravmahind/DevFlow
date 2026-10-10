@@ -20,7 +20,7 @@ logger = get_logger("llm.router")
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 SMART_MODEL = os.getenv("LLM_MODEL_SMART", DEFAULT_MODEL)
 FAST_MODEL = os.getenv("LLM_MODEL_FAST", "openai/gpt-oss-20b")
-SECONDARY_MODEL = os.getenv("LLM_MODEL_SECONDARY", "openai/gpt-oss-20b")
+SECONDARY_MODEL = os.getenv("LLM_MODEL_SECONDARY", "openai/gpt-oss-120b")
 
 
 @dataclass(frozen=True)
@@ -28,18 +28,25 @@ class ModelConfig:
     model: str
     temperature: float
     max_tokens: int
+    # gpt-oss models can spend most of max_tokens on hidden reasoning and
+    # return truncated JSON; "low" leaves the budget for the visible answer.
+    reasoning_effort: str | None = None
+
+
+def _effort(model: str) -> str | None:
+    return "low" if "gpt-oss" in model else None
 
 
 _PROFILES: dict[str, ModelConfig] = {
     # SMART agents use FAST_MODEL (gpt-oss-20b) because the 120b reasoning model
     # burns its entire max_tokens budget on hidden reasoning_content, leaving
     # nothing for visible .content output (finish_reason=length, empty JSON).
-    "requirement_agent": ModelConfig(FAST_MODEL, 0.4, 4096),
-    "architect_agent": ModelConfig(FAST_MODEL, 0.35, 4096),
-    "sprint_planner_agent": ModelConfig(FAST_MODEL, 0.3, 4096),
-    "github_monitor": ModelConfig(FAST_MODEL, 0.3, 1500),
-    "risk_agent": ModelConfig(FAST_MODEL, 0.4, 1500),
-    "deployment_advisor": ModelConfig(FAST_MODEL, 0.4, 2000),
+    "requirement_agent": ModelConfig(FAST_MODEL, 0.4, 4096, _effort(FAST_MODEL)),
+    "architect_agent": ModelConfig(FAST_MODEL, 0.35, 4096, _effort(FAST_MODEL)),
+    "sprint_planner_agent": ModelConfig(FAST_MODEL, 0.3, 4096, _effort(FAST_MODEL)),
+    "github_monitor": ModelConfig(FAST_MODEL, 0.3, 1500, _effort(FAST_MODEL)),
+    "risk_agent": ModelConfig(FAST_MODEL, 0.4, 1500, _effort(FAST_MODEL)),
+    "deployment_advisor": ModelConfig(FAST_MODEL, 0.4, 2000, _effort(FAST_MODEL)),
 }
 
 
@@ -56,7 +63,7 @@ def resolve(agent_id: str) -> ModelConfig:
     override = os.getenv(f"LLM_MODEL_{agent_id.upper()}")
     if override:
         logger.info("Agent %s routed to override model %s", agent_id, override)
-        base = ModelConfig(override, base.temperature, base.max_tokens)
+        base = ModelConfig(override, base.temperature, base.max_tokens, _effort(override))
 
     # Clamp max_tokens to Groq's per-model OTPM ceiling to avoid hard 429 rejections
     cap = _groq_otpm_cap()
@@ -65,7 +72,7 @@ def resolve(agent_id: str) -> ModelConfig:
             "Agent %s max_tokens %d exceeds Groq OTPM cap %d; clamping to %d",
             agent_id, base.max_tokens, cap, cap,
         )
-        return ModelConfig(base.model, base.temperature, cap)
+        return ModelConfig(base.model, base.temperature, cap, base.reasoning_effort)
     return base
 
 

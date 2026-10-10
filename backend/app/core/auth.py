@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -103,6 +104,18 @@ async def _ensure_demo_user() -> CurrentUser:
     return DEMO_USER
 
 
+# Resolved users, cached briefly. The token is still verified on every request;
+# this only skips the Clerk profile call and the users-table upsert, which
+# otherwise ran on every API call (including the workspace's 5s poll).
+_USER_TTL_SECONDS = 300.0
+_user_cache: dict[str, tuple[float, CurrentUser]] = {}
+
+
+def invalidate_user(user_id: str) -> None:
+    """Drop a cached user after their role or profile changes."""
+    _user_cache.pop(user_id, None)
+
+
 async def authenticate_token(token: str) -> CurrentUser:
     if settings.bypass_auth:
         return await _ensure_demo_user()
@@ -111,6 +124,9 @@ async def authenticate_token(token: str) -> CurrentUser:
     try:
         claims = await asyncio.to_thread(_decode_token, token)
         user_id = str(claims["sub"])
+        cached = _user_cache.get(user_id)
+        if cached and time.monotonic() - cached[0] < _USER_TTL_SECONDS:
+            return cached[1]
         profile = await _clerk_profile(user_id)
         emails = profile.get("email_addresses") or []
         primary_id = profile.get("primary_email_address_id")
@@ -140,6 +156,9 @@ async def authenticate_token(token: str) -> CurrentUser:
             role=db_row["role"] if db_row and db_row["role"] else "developer",
             specialization=db_row["specialization"] if db_row else None,
         )
+        if len(_user_cache) > 5000:
+            _user_cache.clear()
+        _user_cache[user_id] = (time.monotonic(), user)
         return user
     except Exception:
         if settings.bypass_auth:

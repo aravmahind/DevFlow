@@ -1,10 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { LayoutGrid, Clock, Layers, Link2, Gauge, UserCircle2, ChevronDown, Check, Filter } from 'lucide-react'
+import { LayoutGrid, Clock, Layers, Link2, Gauge, UserCircle2, ChevronDown, Check, Filter, Loader2, Wand2 } from 'lucide-react'
 import { useProjectStore } from '@/lib/project-store'
 import { useEffect, useRef, useState } from 'react'
-import { getProjectMembers, updateProjectTask } from '@/lib/api'
+import { autoAssignTasks, getProjectMembers, updateProjectTask } from '@/lib/api'
 import { InlineEditable } from './workspace-editor'
 import { useProjectRole } from '@/components/auth/permission-guard'
 import { useAppUser } from '@/lib/auth-context'
@@ -139,6 +139,8 @@ export function SprintBoardView() {
   const [users, setUsers] = useState<any[]>([])
   const [myTasksOnly, setMyTasksOnly] = useState(false)
   const projectRole = useProjectRole()
+  const [assigning, setAssigning] = useState(false)
+  const [assignNote, setAssignNote] = useState<{ ok: boolean; text: string } | null>(null)
   
   useEffect(() => {
     if (project?.id) getProjectMembers(project.id).then(res => { setUsers(res.members || []) }).catch(console.error)
@@ -188,6 +190,26 @@ export function SprintBoardView() {
       console.error("Failed to update task", err)
       // Rollback
       setProject({ ...project, backlog })
+    }
+  }
+
+  const autoAssign = async () => {
+    if (!project) return
+    const overwrite = tasks.some((t: any) => t.assignee_id) &&
+      confirm('Reassign tasks that already have an assignee too?\n\nOK = rebalance every open task · Cancel = only fill unassigned tasks')
+    setAssigning(true)
+    setAssignNote(null)
+    try {
+      const { project: updated, assignments } = await autoAssignTasks(project.id, overwrite)
+      setProject(updated)
+      const people = new Set(assignments.map((a) => a.assignee)).size
+      setAssignNote({ ok: true, text: assignments.length
+        ? `Assigned ${assignments.length} task${assignments.length === 1 ? '' : 's'} across ${people} member${people === 1 ? '' : 's'}.`
+        : 'Every open task already has an assignee.' })
+    } catch (err) {
+      setAssignNote({ ok: false, text: err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : 'Auto-assign failed' })
+    } finally {
+      setAssigning(false)
     }
   }
 
@@ -265,8 +287,20 @@ export function SprintBoardView() {
           <p className="text-slate-500 text-sm">
             {sprints.length} sprints · {normalizedTasks.length} tasks{myTasksOnly ? ' (my tasks)' : ''} · drag cards to update status
           </p>
+          {assignNote && <p className={`text-xs mt-1 ${assignNote.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{assignNote.text}</p>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {projectRole === 'manager' && (
+            <button
+              onClick={autoAssign}
+              disabled={assigning}
+              title="Assign unassigned tasks by skill match and workload"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-blue-700 border-blue-200 hover:bg-blue-50 disabled:opacity-60 transition-colors cursor-pointer"
+            >
+              {assigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+              Auto-assign
+            </button>
+          )}
           {/* My tasks filter */}
           <button
             onClick={() => setMyTasksOnly(o => !o)}

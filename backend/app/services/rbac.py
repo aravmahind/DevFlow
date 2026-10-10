@@ -14,14 +14,16 @@ logger = get_logger("services.rbac")
 # Permission matrix
 # ---------------------------------------------------------------------------
 # Actions: view_project, edit_content, create_project, invite_members,
-#          assign_roles, assign_tasks, update_own_task, run_analysis
+#          assign_roles, assign_tasks, update_own_task, run_analysis,
+#          manage_integrations (link/unlink GitHub), sync_integrations
 PERMISSIONS: dict[str, set[str]] = {
     "manager": {
         "view_project", "edit_content", "create_project", "invite_members",
         "assign_roles", "assign_tasks", "update_own_task", "run_analysis",
+        "manage_integrations", "sync_integrations",
     },
     "developer": {
-        "view_project", "edit_content", "update_own_task",
+        "view_project", "edit_content", "update_own_task", "sync_integrations",
     },
     "tester": {
         "view_project", "update_own_task",
@@ -315,7 +317,7 @@ async def get_user_projects(user_id: str, limit: int = 50) -> list[dict[str, Any
     )
     rows = await fetch(
         """SELECT p.id, p.title, p.status, p.progress, p.created_at, p.updated_at,
-                  p.document->>'idea' AS idea,
+                  p.document->>'idea' AS idea, p.document->>'error' AS error,
                   pm.role AS project_role, pm.specialization AS project_specialization
            FROM project_members pm
            JOIN projects p ON p.id = pm.project_id

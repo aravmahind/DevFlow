@@ -58,4 +58,6 @@ async def update_user_role(user_id: str, role: str, specialization: str | None =
         "UPDATE users SET role=$2, specialization=$3, updated_at=NOW() WHERE clerk_user_id=$1",
         user_id, role, specialization
     )
+    from app.core.auth import invalidate_user
+    invalidate_user(user_id)
     return result.endswith("1")

@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useProjectStore } from '@/lib/project-store'
-import { retryProject, approveProject } from '@/lib/api'
+import { retryProject, approveProject, getProject } from '@/lib/api'
+import { RunControls } from './run-controls'
 import {
   Lightbulb,
   Search,
@@ -23,6 +24,7 @@ import {
   Check,
   ChevronRight,
   RotateCw,
+  Square,
 } from 'lucide-react'
 
 interface AgentStage {
@@ -130,9 +132,12 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
   const progress = useProjectStore((s) => s.progress)
   const project = useProjectStore((s) => s.project)
   const error = useProjectStore((s) => s.error)
+  const status = useProjectStore((s) => s.status)
+  const setProject = useProjectStore((s) => s.setProject)
 
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [isRetrying, setIsRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
   const logsEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -140,21 +145,29 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
     return () => clearInterval(timer)
   }, [])
 
+  // Keep the log panel pinned to its newest line without scrolling the page.
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+    const panel = logsEndRef.current?.parentElement
+    if (panel) panel.scrollTop = panel.scrollHeight
+  }, [logs.length])
 
   const handleRetry = async () => {
     if (!project?.id || isRetrying) return
     setIsRetrying(true)
+    setRetryError(null)
     try {
       await retryProject(project.id)
+      setProject(await getProject(project.id))
     } catch (e) {
-      console.error('Retry failed:', e)
+      setRetryError(e instanceof Error ? e.message : 'Retry failed')
     } finally {
       setIsRetrying(false)
     }
   }
+
+  const failed = status === 'failed'
+  // A queued run with an error is waiting out a backoff before retrying itself.
+  const autoRetrying = status === 'queued' && !!error
 
   // Count completed deliverables
   const completedCount = ALL_AGENTS.filter((a) => {
@@ -180,15 +193,38 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                Orchestration in Progress
-              </span>
+              {status === 'stopped' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                  <Square className="w-3 h-3 fill-current text-slate-500" />
+                  Stopped
+                </span>
+              ) : failed ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                  Run Failed
+                </span>
+              ) : autoRetrying ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                  Retrying Automatically
+                </span>
+              ) : status === 'awaiting_approval' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                  Waiting for Approval
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                  Orchestration in Progress
+                </span>
+              )}
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium">
                 <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
                 CEO Quality Supervision
               </span>
-              {(error || completedCount < ALL_AGENTS.length) && (
+              <RunControls />
+              {(failed || (status === 'complete' && completedCount < ALL_AGENTS.length)) && (
                 <button
                   onClick={handleRetry}
                   disabled={isRetrying}
@@ -271,8 +307,8 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
                 onClick={async () => {
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
                   try {
-                    await approveProject(project.id, project.pending_approval, true, fb)
-                    // UI will auto-update via polling / WebSocket
+                    await approveProject(project.id, project.pending_approval!, true, fb)
+                    setProject(await getProject(project.id))
                   } catch (err) {
                     console.error('Failed to approve:', err)
                     alert('Failed to approve project.')
@@ -287,8 +323,8 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
                   if (!fb) { alert('Please provide feedback for revision'); return; }
                   try {
-                    await approveProject(project.id, project.pending_approval, false, fb)
-                    // UI will auto-update via polling / WebSocket
+                    await approveProject(project.id, project.pending_approval!, false, fb)
+                    setProject(await getProject(project.id))
                   } catch (err) {
                     console.error('Failed to reject:', err)
                     alert('Failed to reject project.')
@@ -480,7 +516,20 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
             <div ref={logsEndRef} />
           </div>
 
-          {error && (
+          {error && autoRetrying && (
+            <div className="mt-3 p-2.5 rounded bg-amber-50 border border-amber-200 text-xs flex items-center gap-2">
+              <RotateCw className="w-4 h-4 flex-shrink-0 text-amber-600" />
+              <span className="line-clamp-2 text-amber-800">{error}</span>
+            </div>
+          )}
+
+          {retryError && (
+            <div className="mt-3 p-2.5 rounded bg-rose-50 border border-rose-200 text-xs text-rose-800">
+              Could not restart the run: {retryError}
+            </div>
+          )}
+
+          {error && failed && (
             <div className="mt-3 p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-750 text-xs flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />

@@ -6,12 +6,16 @@ rather than hallucinating. Routed to the fast Groq model to keep it cheap.
 """
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.utils.json import parse_partial_json
 
 from llm.langchain_client import get_chat_model
-from llm.router import FAST_MODEL
+from llm.router import FAST_MODEL, SECONDARY_MODEL
+from workflows.agent_graph import _extract_json_object
 from services.rag import format_retrieved_context, retrieve_for_agent
 from prompts.context import (
     summarize_architecture,
@@ -34,8 +38,9 @@ SYSTEM_PROMPT = (
 )
 
 class AssistantEdit(BaseModel):
+    op: str = Field(default="set", description="set | add | remove")
     path: str = Field(description="Existing JSON pointer path in the project, e.g. /executive_summary/tagline")
-    value: Any
+    value: Any = None
 
 class AssistantCommand(BaseModel):
     reply: str
@@ -108,20 +113,118 @@ def build_project_context(project: dict[str, Any]) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
+# User-facing sections the assistant may read and edit, in the order the model
+# sees them. Orchestration state, logs and ids are deliberately absent.
+_EDITABLE_SECTIONS = (
+    "title", "executive_summary", "requirements", "architecture", "backlog",
+    "risks", "deployment_recommendations",
+)
+_VIEW_BUDGET = 16000
+
+EDIT_INSTRUCTIONS = """You are Flowmate, and you can change this project's plan when the user asks.
+
+Respond with ONE JSON object and nothing else:
+{"reply": "<what you answered or changed, in plain language>",
+ "edits": [{"op": "set" | "add" | "remove", "path": "/section/field/0/name", "value": <new value>}]}
+
+Rules for edits:
+- Paths are JSON pointers from the TOP of the EDITABLE PLAN below, always starting with the section
+  name, e.g. /requirements/non_functional_requirements/2/description or /backlog/tasks/0/title.
+  List items are addressed by index (0-based).
+- "set" replaces an existing field or list item. "add" with a path ending in /- appends to a list
+  (e.g. {"op":"add","path":"/requirements/user_stories/-","value":{...}}). "remove" deletes a list item.
+- New list items must have the same fields as the existing items in that list.
+- Only use paths that exist in the EDITABLE PLAN. Keep edits minimal: change only what was asked.
+- For questions (no change requested) return "edits": [].
+- Never claim a change in reply that is not in edits."""
+
+
+def _editable_view(project: dict[str, Any], message: str) -> tuple[str, list[str]]:
+    """JSON of the editable sections, fitted to a budget. Sections the message
+    mentions are kept first; any that don't fit are named so the model knows."""
+    view: dict[str, Any] = {}
+    for key in _EDITABLE_SECTIONS:
+        value = project.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if key == "architecture" and isinstance(value, dict):
+            value = {k: v for k, v in value.items() if k not in ("diagram", "mermaid")}
+        view[key] = value
+    lowered = message.lower()
+    mentioned = {"requirements": ("requirement", "story", "stories", "nfr", "scope"),
+                 "backlog": ("task", "sprint", "epic", "backlog", "assign", "estimate"),
+                 "architecture": ("architect", "stack", "database", "frontend", "backend", "infra"),
+                 "risks": ("risk",), "executive_summary": ("summary", "goal", "tagline", "overview")}
+    order = sorted(view, key=lambda k: 0 if any(w in lowered for w in mentioned.get(k, ())) else 1)
+    kept: dict[str, Any] = {}
+    omitted: list[str] = []
+    size = 2
+    for key in order:
+        chunk = json.dumps(view[key], default=str, separators=(",", ":"))
+        if size + len(chunk) > _VIEW_BUDGET:
+            omitted.append(key)
+            continue
+        kept[key] = view[key]
+        size += len(chunk) + len(key) + 4
+    return json.dumps(kept, default=str, separators=(",", ":")), omitted
+
+
+def _parse_command(text: str) -> AssistantCommand:
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    raw = _extract_json_object(text)
+    if raw:
+        for loader in (json.loads, parse_partial_json):
+            try:
+                data = loader(raw)
+            except Exception:
+                continue
+            if isinstance(data, dict) and "reply" in data:
+                edits = data.get("edits") or []
+                if isinstance(edits, dict):
+                    edits = [edits]
+                clean = [
+                    AssistantEdit(path=str(e["path"]), value=e.get("value"), op=str(e.get("op") or "set"))
+                    for e in edits if isinstance(e, dict) and str(e.get("path", "")).startswith("/")
+                ]
+                return AssistantCommand(reply=str(data.get("reply") or ""), edits=clean)
+    # Not JSON: treat as a plain conversational answer.
+    return AssistantCommand(reply=text, edits=[])
+
+
+def _repair_path(project: dict[str, Any], path: str) -> str:
+    """Models sometimes drop the section prefix (/user_stories/- instead of
+    /requirements/user_stories/-). Restore it when exactly one section owns the key."""
+    parts = [p for p in path.split("/") if p]
+    if not parts or parts[0] in project:
+        return path
+    owners = [key for key in _EDITABLE_SECTIONS
+              if isinstance(project.get(key), dict) and parts[0] in project[key]]
+    return f"/{owners[0]}{path}" if len(owners) == 1 else path
+
+
 async def chat(
     project: dict[str, Any],
     message: str,
     history: list[dict[str, str]] | None = None,
 ) -> AssistantCommand:
-    model = get_chat_model(model=FAST_MODEL, temperature=0.45, max_tokens=600)
     context = build_project_context(project)
     retrieved = await retrieve_for_agent(
         str(project.get("id", "")), "product_manager", message, limit=6
     )
-    evidence = format_retrieved_context(retrieved, max_chars=6000)
-    messages = [
-        SystemMessage(content=f"{SYSTEM_PROMPT}\n\n--- PROJECT CONTEXT ---\n{context}"),
-    ]
+    evidence = format_retrieved_context(retrieved, max_chars=4000)
+    plan_json, omitted = _editable_view(project, message)
+    omitted_note = (
+        f"\n(Sections not shown for length, so not editable in this turn: {', '.join(omitted)}.)"
+        if omitted else ""
+    )
+    system = (
+        f"{SYSTEM_PROMPT}\n\n{EDIT_INSTRUCTIONS}\n\n"
+        "When retrieved evidence materially supports an answer, cite its identifier exactly as "
+        "[SOURCE kind:key#chunk].\n\n"
+        f"--- PROJECT SUMMARY ---\n{context}\n\n--- RETRIEVED EVIDENCE ---\n{evidence}\n\n"
+        f"--- EDITABLE PLAN (JSON) ---\n{plan_json}{omitted_note}"
+    )
+    messages: list[Any] = [SystemMessage(content=system)]
     for turn in (history or [])[-6:]:
         role = turn.get("role")
         content = str(turn.get("content", ""))[:1500]
@@ -131,32 +234,19 @@ async def chat(
             messages.append(AIMessage(content=content))
     messages.append(HumanMessage(content=message[:2000]))
 
-    command_model = model.with_structured_output(AssistantCommand)
-    compact_json=__import__('json').dumps(project,default=str,separators=(",",":"))[:10000]
-    messages[0] = SystemMessage(content=f"{SYSTEM_PROMPT}\n\nYou are named Flowmate. You may edit the workspace when the user asks. For an edit request, return the smallest set of JSON-pointer edits targeting existing user-facing fields; never target id, user_id, workspace_id, revision, orchestration, status, or progress. For a question, return no edits. Always set reply and make edits an array. When retrieved evidence materially supports an answer, cite its identifier exactly as [SOURCE kind:key#chunk].\n\n--- PROJECT SUMMARY ---\n{context}\n\n--- RETRIEVED EVIDENCE ---\n{evidence}\n\n--- EDITABLE PROJECT JSON (TRUNCATED) ---\n{compact_json}")
-    try:
-        return await command_model.ainvoke(messages)
-    except Exception as exc:
-        # Some smaller OpenAI-compatible models emit a useful tool payload that
-        # narrowly misses the schema (commonly one edit object instead of a list).
-        # Recover it before falling back to a normal conversational completion.
-        import json, re
-        match=re.search(r'<function=AssistantCommand>\s*(\{.*?\})\s*</function>',str(exc),re.S)
-        if match:
-            try:
-                raw=json.loads(match.group(1)); edits=raw.get("edits",[])
-                if isinstance(edits,dict): edits=[edits]
-                return AssistantCommand(reply=raw.get("reply") or f"Applied {len(edits)} requested workspace change(s).",edits=edits)
-            except Exception:
-                pass
-        logger.warning("Structured Flowmate response failed; falling back to text: %s",str(exc)[:180])
-        response=await model.ainvoke(messages)
-        reply=str(response.content).strip()
-        edits=[]
-        for block in re.findall(r"```(?:json)?\s*(\{.*?\})\s*```",reply,re.S):
-            try:
-                mapping=json.loads(block)
-                edits.extend(AssistantEdit(path=path,value=value) for path,value in mapping.items() if str(path).startswith("/"))
-            except Exception:
-                continue
-        return AssistantCommand(reply=reply,edits=edits)
+    last_exc: Exception | None = None
+    for model_name in dict.fromkeys((FAST_MODEL, SECONDARY_MODEL)):
+        model = get_chat_model(model=model_name, temperature=0.3, max_tokens=3000)
+        if "gpt-oss" in model_name:
+            model = model.bind(reasoning_effort="low")
+        try:
+            response = await model.ainvoke(messages)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Flowmate on %s failed: %s", model_name, str(exc)[:200])
+            continue
+        command = _parse_command(str(response.content))
+        for edit in command.edits:
+            edit.path = _repair_path(project, edit.path)
+        return command
+    raise RuntimeError(f"assistant unavailable: {last_exc}")

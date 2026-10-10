@@ -72,7 +72,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set in .env}
       - AI_INTERNAL_API_KEY=${AI_INTERNAL_API_KEY:-}
-      - LLM_MODEL_SECONDARY=${LLM_MODEL_SECONDARY:-allam-2-7b}
+      - LLM_MODEL_SECONDARY=${LLM_MODEL_SECONDARY:-openai/gpt-oss-120b}
       - LLM_SECONDARY_AFTER_RETRIES=${LLM_SECONDARY_AFTER_RETRIES:-3}
       - LLM_RATE_LIMIT_RETRIES=${LLM_RATE_LIMIT_RETRIES:-6}
     restart: unless-stopped
@@ -84,29 +84,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  langflow:
-    container_name: devflow-langflow
-    image: langflowai/langflow:latest
-    ports:
-      - "${PORT_LANGFLOW:-7860}:7860"
-    environment:
-      - LANGFLOW_HOST=0.0.0.0
-      - LANGFLOW_PORT=7860
-      - LANGFLOW_DO_NOT_TRACK=true
-      - LANGFLOW_AUTO_LOGIN=true
-      - LANGFLOW_SUPERUSER=langflow
-      - LANGFLOW_SUPERUSER_PASSWORD=langflowadmin123
-    volumes:
-      - langflow_data:/root/.cache/langflow
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:7860/health_check').status==200 else 1)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-volumes:
-  langflow_data:
-    name: devflow_langflow_data

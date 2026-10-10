@@ -8,9 +8,17 @@ every node execution. This enables:
 
 The checkpointer shares the same DATABASE_URL used by the rest of ai-services,
 so no additional infrastructure is needed.
+
+State must be durable and shared: ai-services runs several worker processes,
+and an approval or retry may land on a different one than the original run.
+So there is no silent in-memory fallback — if Postgres is unreachable the
+request fails (retryably) and the backend tries again later. Set
+``LANGGRAPH_CHECKPOINTER=memory`` to opt into in-memory state for local
+single-process experiments.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 
 from utils.logging import get_logger
@@ -22,30 +30,47 @@ DATABASE_URL = os.getenv(
 )
 
 
+class CheckpointerUnavailable(RuntimeError):
+    """Raised when durable workflow state cannot be reached."""
+
+
 async def get_checkpointer():
-    """Create and return an async PostgreSQL checkpointer for LangGraph.
+    """Create and return an async PostgreSQL checkpointer for LangGraph."""
+    if os.getenv("LANGGRAPH_CHECKPOINTER", "postgres").lower() == "memory":
+        from langgraph.checkpoint.memory import MemorySaver
+        logger.warning("Using in-memory LangGraph checkpointer (state will NOT survive restarts)")
+        return MemorySaver()
 
-    The checkpointer automatically creates its required tables on first use.
-    We use the async variant because the entire ai-services stack is async.
-    """
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg.rows import dict_row
+    from psycopg_pool import AsyncConnectionPool
+
+    pool = AsyncConnectionPool(
+        conninfo=DATABASE_URL,
+        min_size=1,
+        max_size=5,
+        open=False,
+        # prepare_threshold=None: Supabase's transaction pooler (pgbouncer)
+        # cannot route server-side prepared statements.
+        kwargs={"autocommit": True, "prepare_threshold": None, "row_factory": dict_row},
+        check=AsyncConnectionPool.check_connection,
+    )
     try:
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-        checkpointer = AsyncPostgresSaver.from_conn_string(DATABASE_URL)
-        await checkpointer.setup()
-        logger.info("LangGraph PostgreSQL checkpointer initialized")
-        return checkpointer
-    except ImportError:
-        logger.warning(
-            "langgraph-checkpoint-postgres not installed; "
-            "falling back to in-memory checkpointer (state will NOT persist across restarts)"
-        )
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
+        await pool.open(wait=True, timeout=20)
+        checkpointer = AsyncPostgresSaver(pool)
+        # Several worker processes may run migrations at once; a loser of
+        # that race just tries again.
+        for attempt in range(3):
+            try:
+                await checkpointer.setup()
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1 + attempt)
     except Exception as exc:
-        logger.warning(
-            "Could not connect PostgreSQL checkpointer: %s; "
-            "falling back to in-memory checkpointer", exc
-        )
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
+        await pool.close()
+        raise CheckpointerUnavailable(f"Workflow state store unavailable: {exc}") from exc
+
+    logger.info("LangGraph PostgreSQL checkpointer initialized")
+    return checkpointer

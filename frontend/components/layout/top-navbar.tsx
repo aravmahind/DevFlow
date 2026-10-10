@@ -4,21 +4,14 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppUser, useAppAuth } from '@/lib/auth-context'
 import { Menu, Search, LogIn, Sparkles, ListChecks, FolderKanban, Cpu } from 'lucide-react'
 
 export function TopNavbar() {
   const pathname = usePathname()
   const isProjectShell = pathname?.startsWith('/workspace')
-  const {
-    projectTitle,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-    aiPanelOpen,
-    setAiPanelOpen,
-    accountPanelOpen,
-    setAccountPanelOpen,
-  } = useAppStore()
+  const { projectTitle, sidebarCollapsed, setSidebarCollapsed, aiPanelOpen, setAiPanelOpen, accountPanelOpen, setAccountPanelOpen } = useAppStore(useShallow((s) => ({ projectTitle: s.projectTitle, sidebarCollapsed: s.sidebarCollapsed, setSidebarCollapsed: s.setSidebarCollapsed, aiPanelOpen: s.aiPanelOpen, setAiPanelOpen: s.setAiPanelOpen, accountPanelOpen: s.accountPanelOpen, setAccountPanelOpen: s.setAccountPanelOpen })))
   const { user, isSignedIn, isLoaded } = useAppUser()
   const { signIn } = useAppAuth()
 

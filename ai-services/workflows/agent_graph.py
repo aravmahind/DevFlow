@@ -148,6 +148,16 @@ def _structured(model: Any, schema: type[BaseModel]) -> Any:
                     f"{'Reasoning model exhausted token budget on hidden chain-of-thought.' if reasoning else 'The model may need a stronger prompt to produce JSON output.'}"
                 )
 
+            # A response cut off at max_tokens must not be "repaired" into valid
+            # JSON: closing the brackets silently drops every later field (e.g.
+            # NFRs and user stories after the functional requirements).
+            meta = getattr(ai_msg, "response_metadata", {}) or {}
+            if meta.get("finish_reason") == "length":
+                raise ValueError(
+                    f"LLM output for {schema.__name__} was truncated at max_tokens "
+                    f"({len(text)} chars); refusing to repair partial JSON"
+                )
+
             # Strip Qwen 3 thinking tokens — they appear before the actual JSON
             text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
             # Try to extract from markdown block
@@ -218,6 +228,8 @@ def build_agent_graph(
         temperature=model_config.temperature,
         max_tokens=model_config.max_tokens,
     )
+    if model_config.reasoning_effort:
+        model = model.bind(reasoning_effort=model_config.reasoning_effort)
     generator = _structured(model, schema)
     reviewer = _structured(
         get_chat_model(model=model_config.model, temperature=0.0, max_tokens=600),

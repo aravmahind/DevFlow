@@ -294,3 +294,24 @@ async def save_quality_record(
             )
     except Exception as exc:
         logger.warning("Failed to save quality record for %s/%s: %s", project_id, agent_id, exc)
+
+
+async def fetch_github_snapshot(project_id: str) -> dict[str, Any] | None:
+    """Compact GitHub tracker snapshot written by the backend after each repo sync."""
+    pool = await get_db_pool()
+    if not pool:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT status_report->'tracker_snapshot' AS snap FROM github_links "
+                "WHERE project_id = $1 AND sync_status <> 'pending'",
+                project_id,
+            )
+    except Exception as exc:  # table absent on older schemas, or DB unavailable
+        logger.info("No GitHub snapshot for %s: %s", project_id, exc)
+        return None
+    snap = row["snap"] if row else None
+    if isinstance(snap, str):
+        snap = json.loads(snap)
+    return snap or None

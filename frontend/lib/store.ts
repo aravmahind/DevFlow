@@ -18,6 +18,16 @@ export type WorkspaceMode =
   | 'timeline'
   | 'documentation'
   | 'insights'
+  | 'github'
+
+export const WORKSPACE_MODES: readonly WorkspaceMode[] = [
+  'track-live', 'overview', 'prerequisites', 'requirements', 'architecture', 'backlog', 'sprint',
+  'risks', 'cost', 'team', 'members', 'tech-stack', 'integrations', 'milestones', 'timeline',
+  'documentation', 'insights', 'github',
+]
+
+export const isWorkspaceMode = (value: string | null | undefined): value is WorkspaceMode =>
+  !!value && (WORKSPACE_MODES as readonly string[]).includes(value)
 
 export type OrchestrationNodeId =
   | 'idea'

@@ -4,12 +4,13 @@ import { ReactFlow, Background, Controls, MiniMap, type Edge, type NodeMouseHand
 import '@xyflow/react/dist/style.css'
 import { motion } from 'framer-motion'
 import { useAppStore, type OrchestrationNodeId } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useCallback, useMemo } from 'react'
 import { OrchestrationNode, type OrchestrationFlowNode } from './orchestration-node'
 import { useOrchestrationNodes } from '@/hooks/use-orchestration-nodes'
 
 export function OrchestrationView() {
-  const { activeOrchestrationNode, setActiveOrchestrationNode } = useAppStore()
+  const { activeOrchestrationNode, setActiveOrchestrationNode } = useAppStore(useShallow((s) => ({ activeOrchestrationNode: s.activeOrchestrationNode, setActiveOrchestrationNode: s.setActiveOrchestrationNode })))
   const { nodes: nodesData, edges: edgesData } = useOrchestrationNodes()
 
   const nodes: OrchestrationFlowNode[] = useMemo(() =>

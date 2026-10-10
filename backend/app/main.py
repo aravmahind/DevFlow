@@ -3,11 +3,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.api.projects import agents_router, router as projects_router
+from app.api.github import router as github_router
 from app.api.stream import router as stream_router
 from app.api.users import router as users_router
 from app.api.workspaces import router as workspaces_router
@@ -16,6 +18,7 @@ from app.core.logging import get_logger
 from app.db.postgres import close_postgres, init_postgres, pool
 from app.orchestrator.manager import start_workers, stop_workers
 from app.services.ai_client import ai_services
+from app.services.github_tracker import start_poller, stop_poller
 
 logger = get_logger("main")
 START_TIME = time.time()
@@ -26,8 +29,10 @@ async def lifespan(app: FastAPI):
     logger.info("Devflow backend starting")
     await init_postgres()
     start_workers()
+    start_poller()
     logger.info("Orchestrator workers started (%d)", settings.worker_count)
     yield
+    await stop_poller()
     await stop_workers()
     await close_postgres()
     logger.info("Devflow backend shut down")
@@ -41,6 +46,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Project documents are large JSON; compressing them cuts transfer ~5-10x.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -55,6 +62,7 @@ app.include_router(agents_router)
 app.include_router(stream_router)
 app.include_router(users_router)
 app.include_router(workspaces_router)
+app.include_router(github_router)
 from app.api.rbac import router as rbac_router
 app.include_router(rbac_router)
 

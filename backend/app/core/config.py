@@ -50,7 +50,40 @@ class Settings:
     analyze_queue: str = "queue:analyze"
     worker_count: int = int(os.getenv("ORCHESTRATOR_WORKERS", "1"))
     run_timeout_seconds: int = int(os.getenv("RUN_TIMEOUT_SECONDS", "1800"))
+    # Durable job queue: a worker renews its lease every heartbeat; a job whose
+    # lease lapses (worker crashed) is picked up again by any process.
+    job_lease_seconds: int = int(os.getenv("JOB_LEASE_SECONDS", "120"))
+    job_max_attempts: int = int(os.getenv("JOB_MAX_ATTEMPTS", "4"))
+    # Runs stranded longer than this (e.g. backend down for a while) are marked
+    # failed for a manual Retry rather than auto-resumed.
+    auto_resume_window_seconds: int = int(os.getenv("AUTO_RESUME_WINDOW_SECONDS", "21600"))
+    # ai-services sends a heartbeat every few seconds during a run, so this much
+    # silence means the connection or the service is dead, not a slow LLM.
+    stream_idle_timeout_seconds: int = int(os.getenv("STREAM_IDLE_TIMEOUT_SECONDS", "180"))
     event_buffer_ttl_seconds: int = int(os.getenv("EVENT_BUFFER_TTL_SECONDS", "86400"))
+
+    # GitHub linking. A server token raises the API rate limit (60 -> 5000/h)
+    # and is used for repos linked without their own token.
+    github_token: str = os.getenv("GITHUB_TOKEN", "")
+    github_token_secret: str = os.getenv("GITHUB_TOKEN_SECRET", "")
+    # Publicly reachable backend URL; when set, webhooks are auto-registered.
+    public_api_url: str = os.getenv("PUBLIC_API_URL", "").rstrip("/")
+    # GitHub OAuth App ("Connect GitHub"). The callback URL registered on the
+    # OAuth App must equal github_oauth_redirect_uri (a frontend page).
+    # GITHUB_CLIENT_ID/SECRET are accepted too (the names reponix uses).
+    github_oauth_client_id: str = os.getenv("GITHUB_OAUTH_CLIENT_ID") or os.getenv("GITHUB_CLIENT_ID", "")
+    github_oauth_client_secret: str = (
+        os.getenv("GITHUB_OAUTH_CLIENT_SECRET") or os.getenv("GITHUB_CLIENT_SECRET", "")
+    )
+    github_oauth_redirect_uri: str = os.getenv(
+        "GITHUB_OAUTH_REDIRECT_URI", "http://localhost:3000/github/callback"
+    )
+    # repo: read private repos; admin:repo_hook: auto-register push webhooks.
+    github_oauth_scopes: str = os.getenv("GITHUB_OAUTH_SCOPES", "repo admin:repo_hook")
+    github_poll_seconds: int = int(os.getenv("GITHUB_POLL_SECONDS", "120"))
+    github_max_commits: int = int(os.getenv("GITHUB_MAX_COMMITS", "300"))
+    github_detail_commits: int = int(os.getenv("GITHUB_DETAIL_COMMITS", "60"))
+    github_ai_commits: int = int(os.getenv("GITHUB_AI_COMMITS", "120"))
 
     cors_origins: list[str] = field(
         default_factory=lambda: _csv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3100,http://127.0.0.1:3000,http://127.0.0.1:3100")

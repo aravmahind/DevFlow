@@ -5,8 +5,9 @@ import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { ClerkProvider } from '@clerk/nextjs'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+// Self-hosted and preloaded by next/font; exposed as CSS variables for globals.css.
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://devflow.ai'),
@@ -63,7 +64,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background text-foreground">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} bg-background text-foreground`}>
       <body className="font-sans antialiased bg-background text-foreground min-h-screen">
         <MaybeClerkProvider>
           <AuthProvider>{children}</AuthProvider>

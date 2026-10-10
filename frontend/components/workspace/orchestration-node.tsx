@@ -3,6 +3,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import { motion } from 'framer-motion'
 import { useAppStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Lightbulb,
   CheckCircle,
@@ -49,7 +50,7 @@ const statusLabels = {
 }
 
 export function OrchestrationNode({ data, id }: NodeProps<OrchestrationFlowNode>) {
-  const { activeOrchestrationNode } = useAppStore()
+  const { activeOrchestrationNode } = useAppStore(useShallow((s) => ({ activeOrchestrationNode: s.activeOrchestrationNode })))
   const isActive = activeOrchestrationNode === id
 
   return (

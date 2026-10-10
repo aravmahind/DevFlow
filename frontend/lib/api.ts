@@ -97,6 +97,24 @@ export async function retryProject(
   return jsonOrThrow(res)
 }
 
+/** Start or resume the workflow from its last checkpoint (managers only). */
+export async function runProject(projectId: string): Promise<{ project_id: string; status: string }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'run'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+  })
+  return jsonOrThrow(res)
+}
+
+/** Stop the running workflow; finished sections are kept (managers only). */
+export async function stopProject(projectId: string): Promise<{ project_id: string; status: string }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'stop'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+  })
+  return jsonOrThrow(res)
+}
+
 export type MigrationSource = 'spec' | 'file' | 'repo' | 'tickets'
 
 /**
@@ -117,12 +135,14 @@ export async function migrateProject(payload: {
   return jsonOrThrow(res)
 }
 
+export type AssistantEdit = { op?: 'set' | 'add' | 'remove'; path: string; value?: unknown }
+
 /** Ask the project assistant a question grounded in the project's plan. */
 export async function askAssistant(
   projectId: string,
   message: string,
   history: { role: 'user' | 'assistant'; content: string }[] = [],
-): Promise<{ reply: string; edits?: {path:string;value:any}[]; project?: ProjectDoc }> {
+): Promise<{ reply: string; edits?: AssistantEdit[]; edit_error?: string | null; project?: ProjectDoc | null }> {
   const res = await fetch(endpoint.projectAction(projectId, 'chat'), {
     method: 'POST',
     headers: await authHeaders(true),
@@ -133,6 +153,16 @@ export async function askAssistant(
 
 export async function editProjectContent(projectId:string,path:string,value:any,expectedRevision?:number):Promise<{project:ProjectDoc}>{
   const res=await fetch(endpoint.projectAction(projectId, 'content'),{method:'PATCH',headers:await authHeaders(true),body:JSON.stringify({path,value,expected_revision:expectedRevision})})
+  return jsonOrThrow(res)
+}
+export interface TaskAssignment { task_index: number; title: string; assignee_id: string; assignee: string; reason: string }
+/** Assign backlog tasks to members by skill fit and workload (managers only). */
+export async function autoAssignTasks(projectId: string, overwrite = false): Promise<{ project: ProjectDoc; assignments: TaskAssignment[] }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'tasks/auto-assign'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({ overwrite }),
+  })
   return jsonOrThrow(res)
 }
 export async function undoProject(projectId:string):Promise<{project:ProjectDoc}>{
@@ -216,6 +246,157 @@ export async function approveProject(
     method: 'POST',
     headers: await authHeaders(true),
     body: JSON.stringify({ phase, approved, feedback }),
+  })
+  return jsonOrThrow(res)
+}
+
+// ---- GitHub repository tracker ----
+export type GithubItemStatus = 'implemented' | 'in_progress' | 'not_started'
+export interface GithubPerson { key: string; login: string | null; name: string; avatar_url: string | null; commits?: number }
+export interface GithubPlanItem {
+  key: string; kind: 'task' | 'requirement'; title: string; epic: string; category: string
+  board_status?: string; status: GithubItemStatus; mismatch: string | null; verdict_reason?: string | null
+  contributors: GithubPerson[]; last_activity: string | null
+  commits: { sha: string; message: string; author: string | null; url: string | null; committed_at: string | null; completion: 'partial' | 'complete' }[]
+}
+export interface GithubContributor extends GithubPerson {
+  commits: number; additions: number; deletions: number; has_line_stats: boolean; first_commit: string | null; last_commit: string | null
+  categories: Record<string, number>; top_areas: string[]
+  delivered: { key: string; title: string }[]; touched: { key: string; title: string }[]
+}
+export interface GithubOverview {
+  linked: boolean
+  role?: 'manager' | 'developer' | 'tester'
+  link?: {
+    owner: string; repo: string; full_name: string; html_url: string; default_branch: string
+    sync_status: 'pending' | 'syncing' | 'ready' | 'failed'; sync_error: string | null
+    last_synced_at: string | null; head_sha: string | null; created_at: string | null
+    has_token: boolean; linked_by: string | null; poll_seconds: number
+    auth: 'account' | 'token' | 'none'; account_login: string | null
+    webhook: { url: string; auto_registered: boolean; secret: string | null }
+  }
+  repo?: {
+    description: string | null; language: string | null; languages: Record<string, number>
+    stars: number; forks: number; open_issues: number; topics: string[]; private: boolean
+    pushed_at: string | null; created_at: string | null; file_count: number
+  }
+  report?: { stale?: boolean; summary?: string; tech_stack?: string[]; highlights?: string[]; gaps?: string[]; generated_at?: string }
+  items?: GithubPlanItem[]
+  epics?: { epic: string; total: number; implemented: number; in_progress: number; percent: number }[]
+  progress?: { total: number; implemented: number; in_progress: number; not_started: number; percent: number }
+  contributors?: GithubContributor[]
+  stats?: { commits: number; analyzed: number; untracked_features: number; additions: number; deletions: number; categories: Record<string, number> }
+}
+export interface GithubCommit {
+  sha: string; author_login: string | null; author_name: string | null; author_avatar: string | null
+  committed_at: string | null; message: string; url: string | null; additions: number; deletions: number
+  files: { path: string; status: string; additions: number; deletions: number }[]
+  analysis: { summary?: string; category?: string; area?: string; items?: { key: string; completion: string }[]; source?: string }
+}
+
+export async function getGithub(projectId: string): Promise<GithubOverview> {
+  const res = await fetch(endpoint.projectAction(projectId, 'github'), { headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+export async function linkGithub(
+  projectId: string,
+  repoUrl: string,
+  opts: { accessToken?: string; useAccount?: boolean } = {},
+): Promise<GithubOverview> {
+  const res = await fetch(endpoint.projectAction(projectId, 'github'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({
+      repo_url: repoUrl,
+      access_token: opts.accessToken || null,
+      use_account: !!opts.useAccount,
+    }),
+  })
+  return jsonOrThrow(res)
+}
+
+// ---- Connected GitHub account (OAuth) ----
+export interface GithubAccount {
+  login: string; name: string | null; avatar_url: string | null; scopes: string[]
+  can_read_private: boolean; can_manage_webhooks: boolean; needs_reconnect: boolean
+  connected_at: string | null
+}
+export interface GithubAccountStatus {
+  configured: boolean; connected: boolean; account: GithubAccount | null; manage_access_url: string | null
+}
+export interface GithubRepoOption {
+  full_name: string; owner: string; name: string; private: boolean; description: string | null
+  default_branch: string | null; pushed_at: string | null; language: string | null; can_admin: boolean
+  stars: number; html_url: string | null; updated_at: string | null
+}
+
+export async function getGithubAccount(): Promise<GithubAccountStatus> {
+  const res = await fetch(`${apiBase()}/github/account`, { headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+/** Sends the browser to GitHub; it comes back to /github/callback, then to `returnTo`. */
+export async function connectGithubAccount(returnTo: string): Promise<void> {
+  const res = await fetch(`${apiBase()}/github/oauth/start`, {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({ return_to: returnTo }),
+  })
+  const { authorize_url } = await jsonOrThrow(res)
+  window.location.assign(authorize_url)
+}
+
+export async function completeGithubConnect(code: string, state: string): Promise<{ account: GithubAccount; return_to: string }> {
+  const res = await fetch(`${apiBase()}/github/oauth/callback`, {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({ code, state }),
+  })
+  return jsonOrThrow(res)
+}
+
+export async function disconnectGithubAccount(): Promise<{ status: string; affected_links: number }> {
+  const res = await fetch(`${apiBase()}/github/account`, { method: 'DELETE', headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+export async function listGithubRepos(): Promise<{ repos: GithubRepoOption[] }> {
+  const res = await fetch(`${apiBase()}/github/repos`, { headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+export async function unlinkGithub(projectId: string): Promise<{ status: string }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'github'), { method: 'DELETE', headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+export async function syncGithub(projectId: string, reanalyze = false): Promise<{ status: string }> {
+  const res = await fetch(`${endpoint.projectAction(projectId, 'github/sync')}${reanalyze ? '?reanalyze=true' : ''}`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  })
+  return jsonOrThrow(res)
+}
+
+export async function listGithubCommits(projectId: string, opts: { limit?: number; offset?: number; author?: string } = {}): Promise<{ commits: GithubCommit[] }> {
+  const params = new URLSearchParams()
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.offset) params.set('offset', String(opts.offset))
+  if (opts.author) params.set('author', opts.author)
+  const res = await fetch(`${endpoint.projectAction(projectId, 'github/commits')}?${params}`, { headers: await authHeaders() })
+  return jsonOrThrow(res)
+}
+
+export async function askRepo(
+  projectId: string,
+  message: string,
+  history: { role: 'user' | 'assistant'; content: string }[] = [],
+): Promise<{ reply: string }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'github/chat'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+    body: JSON.stringify({ message, history }),
   })
   return jsonOrThrow(res)
 }

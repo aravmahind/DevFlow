@@ -1,6 +1,7 @@
-"""In-memory event bus, buffer replay, and job queue.
+"""In-memory event bus and buffer replay.
 
-Replaces Redis pub/sub and Redis queue with zero external dependencies.
+Replaces Redis pub/sub with zero external dependencies. The job queue lives in
+PostgreSQL (``orchestration_store``) so it survives restarts.
 Works identically in local dev and Docker container modes.
 """
 from __future__ import annotations
@@ -24,29 +25,7 @@ class EventBus:
         self._buffers: dict[str, deque[dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=_MAX_BUFFER_PER_PROJECT)
         )
-        # In-memory queue for analysis jobs
-        self._job_queue: asyncio.Queue[str] = asyncio.Queue()
         self._lock = asyncio.Lock()
-
-    # ---- Job Queue (Replaces Redis analyze_queue) ----
-
-    async def enqueue_job(self, project_id: str) -> None:
-        """Enqueue an analysis job for background workers."""
-        await self._job_queue.put(project_id)
-        logger.info("Enqueued job for project %s (queue size: %d)", project_id, self._job_queue.qsize())
-
-    async def dequeue_job(self, timeout: float = 2.0) -> str | None:
-        """Dequeue an analysis job with timeout."""
-        try:
-            return await asyncio.wait_for(self._job_queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return None
-
-    def mark_job_done(self) -> None:
-        try:
-            self._job_queue.task_done()
-        except ValueError:
-            pass
 
     # ---- Pub/Sub & Buffering (Replaces Redis channel & Redis event buffer) ----
 

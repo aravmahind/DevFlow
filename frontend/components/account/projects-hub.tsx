@@ -18,8 +18,9 @@ import {
   DollarSign,
   ShieldCheck,
   Zap,
+  RotateCw,
 } from 'lucide-react'
-import { listProjects } from '@/lib/api'
+import { listProjects, retryProject } from '@/lib/api'
 import type { ProjectDoc } from '@/lib/project-types'
 import { TopNavbar } from '@/components/layout/top-navbar'
 import { AccountPanel } from '@/components/layout/account-panel'
@@ -177,7 +178,7 @@ function ProjectsSection({ userId }: { userId: string | null }) {
       if (!matchQuery) return false
 
       if (filter === 'ready') return p.status === 'complete'
-      if (filter === 'active') return p.status === 'running' || p.status === 'queued'
+      if (filter === 'active') return p.status === 'running' || p.status === 'queued' || p.status === 'awaiting_approval'
       if (filter === 'failed') return p.status === 'failed'
       return true
     })
@@ -297,6 +298,17 @@ function ProjectsSection({ userId }: { userId: string | null }) {
                 {p.idea || 'Autonomous AI delivery specification'}
               </p>
 
+              {p.error && (p.status === 'failed' || p.status === 'queued') && (
+                <RunIssue
+                  project={p}
+                  onRetried={() =>
+                    setProjects((all) =>
+                      all.map((x) => (x.id === p.id ? { ...x, status: 'queued', error: null } : x)),
+                    )
+                  }
+                />
+              )}
+
               <div className="space-y-3 pt-3 border-t border-slate-100 mt-auto">
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] text-slate-500 font-medium">
@@ -338,6 +350,50 @@ function ProjectsSection({ userId }: { userId: string | null }) {
   )
 }
 
+function RunIssue({ project, onRetried }: { project: ProjectSummary; onRetried: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
+  const failed = project.status === 'failed'
+
+  const retry = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!project.id || busy) return
+    setBusy(true)
+    setRetryError(null)
+    try {
+      await retryProject(project.id)
+      onRetried()
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : 'Retry failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={`mb-4 rounded-lg border px-3 py-2 text-[11px] cursor-default ${failed ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle className={`w-3.5 h-3.5 mt-px shrink-0 ${failed ? 'text-rose-600' : 'text-amber-600'}`} />
+        <span className="line-clamp-3 break-words">{project.error}</span>
+      </div>
+      {failed && (
+        <button
+          onClick={retry}
+          disabled={busy}
+          className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold transition-colors cursor-pointer"
+        >
+          <RotateCw className={`w-3 h-3 ${busy ? 'animate-spin' : ''}`} />
+          {busy ? 'Resuming…' : 'Retry from where it stopped'}
+        </button>
+      )}
+      {retryError && <p className="mt-1.5 text-rose-700">{retryError}</p>}
+    </div>
+  )
+}
+
 function StatusBadge({ status }: { status: string | undefined }) {
   if (status === 'complete') {
     return (
@@ -351,6 +407,22 @@ function StatusBadge({ status }: { status: string | undefined }) {
     return (
       <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200 rounded-full shrink-0">
         Failed
+      </span>
+    )
+  }
+
+  if (status === 'stopped') {
+    return (
+      <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-300 rounded-full shrink-0">
+        Stopped
+      </span>
+    )
+  }
+
+  if (status === 'awaiting_approval') {
+    return (
+      <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 rounded-full shrink-0">
+        Needs approval
       </span>
     )
   }

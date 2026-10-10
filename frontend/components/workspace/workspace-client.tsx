@@ -1,36 +1,46 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { FolderKanban, Plus } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { useProjectStore } from '@/lib/project-store'
 import { useOrchestrationStream } from '@/lib/use-orchestration-stream'
-import { OverviewView } from './overview-view'
-import { ArchitectureView } from './architecture-view'
-import { RequirementsView } from './requirements-view'
-import { BacklogView } from './backlog-view'
-import { RiskView } from './risk-view'
-
-import { IntegrationsView } from './integrations-view'
-import { SprintBoardView } from './sprint-board-view'
-import { InsightsView } from './insights-view'
-import { DocumentationView } from './documentation-view'
-import { OrchestrationLoader } from './orchestration-loader'
+import dynamic from 'next/dynamic'
 import { WorkspaceEditProvider } from './workspace-editor'
-import { TeamManagement } from './team-management'
 import { ProjectRoleProvider } from '@/components/auth/permission-guard'
+import { isWorkspaceMode } from '@/lib/store'
+
+// Views are code-split: opening a project downloads only the view on screen
+// (the architecture diagram library alone is sizeable).
+const loading = () => <div className="py-16 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-blue-600 animate-spin" /></div>
+const OverviewView = dynamic(() => import('./overview-view').then((m) => m.OverviewView), { loading })
+const ArchitectureView = dynamic(() => import('./architecture-view').then((m) => m.ArchitectureView), { loading, ssr: false })
+const RequirementsView = dynamic(() => import('./requirements-view').then((m) => m.RequirementsView), { loading })
+const BacklogView = dynamic(() => import('./backlog-view').then((m) => m.BacklogView), { loading })
+const RiskView = dynamic(() => import('./risk-view').then((m) => m.RiskView), { loading })
+const IntegrationsView = dynamic(() => import('./integrations-view').then((m) => m.IntegrationsView), { loading })
+const SprintBoardView = dynamic(() => import('./sprint-board-view').then((m) => m.SprintBoardView), { loading })
+const InsightsView = dynamic(() => import('./insights-view').then((m) => m.InsightsView), { loading })
+const DocumentationView = dynamic(() => import('./documentation-view').then((m) => m.DocumentationView), { loading })
+const GithubView = dynamic(() => import('./github-view').then((m) => m.GithubView), { loading })
+const OrchestrationLoader = dynamic(() => import('./orchestration-loader').then((m) => m.OrchestrationLoader), { loading })
+const TeamManagement = dynamic(() => import('./team-management').then((m) => m.TeamManagement), { loading })
 
 export function WorkspaceClient() {
   const router = useRouter()
-  const { activeWorkspaceMode, setActiveWorkspaceMode, setProjectTitle, setProjectDescription } = useAppStore()
+  const activeWorkspaceMode = useAppStore((s) => s.activeWorkspaceMode)
+  const setActiveWorkspaceMode = useAppStore((s) => s.setActiveWorkspaceMode)
+  const setProjectTitle = useAppStore((s) => s.setProjectTitle)
+  const setProjectDescription = useAppStore((s) => s.setProjectDescription)
   const setProjectId = useProjectStore((s) => s.setProjectId)
   const reset = useProjectStore((s) => s.reset)
   const project = useProjectStore((s) => s.project)
 
   const searchParams = useSearchParams()
   const projectId = searchParams?.get('project')
+  const view = searchParams?.get('view')
 
   useEffect(() => {
     if (!projectId) {
@@ -41,14 +51,39 @@ export function WorkspaceClient() {
     setProjectId(projectId)
   }, [projectId, reset, setProjectId, router])
 
+  // The open view lives in the URL (?view=...), so a reload, a shared link or
+  // returning from GitHub sign-in lands on the same view.
+  useEffect(() => {
+    if (isWorkspaceMode(view) && view !== useAppStore.getState().activeWorkspaceMode) {
+      setActiveWorkspaceMode(view)
+    }
+  }, [view, setActiveWorkspaceMode])
+
+  const urlApplied = useRef(false)
+  useEffect(() => {
+    // On first load the URL wins: the store still holds its default here.
+    if (!urlApplied.current) {
+      urlApplied.current = true
+      if (isWorkspaceMode(view)) return
+    }
+    if (!projectId || activeWorkspaceMode === view) return
+    const params = new URLSearchParams(window.location.search)
+    params.set('view', activeWorkspaceMode)
+    router.replace(`/workspace?${params.toString()}`, { scroll: false })
+    // Only the mode drives this; `view` catching up must not re-trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceMode, projectId])
+
   useOrchestrationStream(projectId || null)
 
   useEffect(() => {
     if (!project) return
+    // Only write when the text changed: every store write re-renders the layout.
+    const app = useAppStore.getState()
     const title = project.executive_summary?.project_title || project.title
-    if (title) setProjectTitle(title)
+    if (title && title !== app.projectTitle) setProjectTitle(title)
     const desc = project.executive_summary?.tagline || project.executive_summary?.overview || project.idea
-    if (desc) setProjectDescription(desc)
+    if (desc && desc !== app.projectDescription) setProjectDescription(desc)
   }, [project, setProjectTitle, setProjectDescription])
 
   if (!projectId) {
@@ -96,6 +131,8 @@ export function WorkspaceClient() {
         return <BacklogView />
       case 'sprint':
         return <SprintBoardView />
+      case 'github':
+        return <GithubView />
       case 'risks':
         return <RiskView />
       case 'cost':

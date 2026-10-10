@@ -9,7 +9,18 @@ def _count(data: dict[str, Any], key: str) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+# The graph's agent ids differ from the gate names these checks were written
+# against; without this map the gates for the live agents never ran.
+_GATE_FOR_AGENT = {
+    "requirement_agent": "product_manager",
+    "architect_agent": "architect",
+    "sprint_planner_agent": "sprint_planner",
+    "risk_agent": "risk",
+}
+
+
 def evaluate_agent_output(agent_id: str, data: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    agent_id = _GATE_FOR_AGENT.get(agent_id, agent_id)
     issues: list[str] = []
     metrics: dict[str, Any] = {}
 

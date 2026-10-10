@@ -39,7 +39,7 @@ async def stream(websocket: WebSocket, project_id: str) -> None:
 
     try:
         # If the run already finished, no live events will arrive.
-        if doc.get("status") in ("complete", "failed"):
+        if doc.get("status") in ("complete", "failed", "stopped"):
             await websocket.send_json({"type": "stream_end"})
             return
 
@@ -62,9 +62,13 @@ async def stream(websocket: WebSocket, project_id: str) -> None:
             idle_polls = idle_polls + 1 if not events else 0
             if idle_polls >= 4:
                 latest = await project_service.get_project(project_id, user.id)
-                if latest and latest.get("status") in ("complete", "failed"):
+                if latest and latest.get("status") in ("complete", "failed", "stopped"):
                     await websocket.send_json({"type": "stream_end"})
                     return
+                # An approval or retry runs as a new job; follow it.
+                newest = await orchestration_store.latest_job(project_id)
+                if newest is not None and newest != job_id:
+                    job_id, max_event_id = newest, 0
                 idle_polls = 0
             await asyncio.sleep(0.75)
 

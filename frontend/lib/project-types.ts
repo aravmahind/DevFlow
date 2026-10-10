@@ -84,6 +84,8 @@ export interface ArchitectureBundle {
   technology_recommendations: string[]
   scalability_plan: string[]
   integration_points: string[]
+  data_flows?: { source: string; target: string; label: string }[]
+  architecture_rationale?: string
   diagram?: { nodes: DiagramNode[]; edges: DiagramEdge[] }
   mermaid?: string
 }
@@ -189,12 +191,13 @@ export interface ProjectDoc {
   id: string
   title: string
   idea: string
-  status: 'queued' | 'running' | 'complete' | 'failed'
+  status: 'queued' | 'running' | 'awaiting_approval' | 'complete' | 'failed' | 'stopped'
   progress: number
   error: string | null
   created_at: string
   updated_at: string
   revision?: number
+  pending_approval?: string | null
   workspace_id?: string
   manager_inputs?: {
     team_size?: number

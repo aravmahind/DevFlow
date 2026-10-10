@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppUser, useAppAuth } from '@/lib/auth-context'
 import { 
   X, 
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react'
 
 export function AccountPanel() {
-  const { accountPanelOpen, setAccountPanelOpen } = useAppStore()
+  const { accountPanelOpen, setAccountPanelOpen } = useAppStore(useShallow((s) => ({ accountPanelOpen: s.accountPanelOpen, setAccountPanelOpen: s.setAccountPanelOpen })))
   const { user, isClerk } = useAppUser()
   const { signOut, updateProfile } = useAppAuth()
   const isBypassMode = process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true'

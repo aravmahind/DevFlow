@@ -5,7 +5,8 @@ import { TopNavbar } from '@/components/layout/top-navbar'
 import { AccountPanel } from '@/components/layout/account-panel'
 import { useAppUser } from '@/lib/auth-context'
 import { updateMyRole, syncUser } from '@/lib/api'
-import { Loader2, Save, User, Code, ShieldCheck, CheckCircle2, Info } from 'lucide-react'
+import { Loader2, Save, User, Code, ShieldCheck, CheckCircle2, Info, Github } from 'lucide-react'
+import { GithubAccountCard, useGithubAccount } from '@/components/github/github-account'
 
 const SPECIALIZATIONS = [
   'Full Stack', 'Frontend', 'Backend', 'Mobile', 'DevOps', 'Security',
@@ -147,8 +148,31 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
+
+          <ConnectedAccounts />
         </div>
       </main>
     </div>
+  )
+}
+
+function ConnectedAccounts() {
+  const { status, error, refresh } = useGithubAccount()
+  return (
+    <section className="mt-6 bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+      <div className="p-6 border-b border-slate-100">
+        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+          <Github className="w-4 h-4" /> Connected accounts
+        </h2>
+        <p className="text-xs text-slate-500 mt-1">
+          Link private repositories to your projects through your GitHub account.
+        </p>
+      </div>
+      <div className="p-6">
+        {error && <p className="text-xs text-rose-700">{error}</p>}
+        {!status && !error && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+        {status && <GithubAccountCard status={status} returnTo="/settings" onChanged={refresh} />}
+      </div>
+    </section>
   )
 }

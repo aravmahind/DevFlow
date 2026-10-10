@@ -276,6 +276,68 @@ CREATE TABLE IF NOT EXISTS project_invites (
 CREATE INDEX IF NOT EXISTS project_invites_email_idx ON project_invites(email);
 CREATE INDEX IF NOT EXISTS project_invites_project_idx ON project_invites(project_id);
 
+-- GitHub linking: one repository per project. Commits are ingested on every
+-- push (webhook) or poll, and each commit is AI-mapped onto plan items so the
+-- workspace can show what has actually been implemented and by whom.
+CREATE TABLE IF NOT EXISTS github_links (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    default_branch TEXT NOT NULL DEFAULT 'main',
+    access_token TEXT,
+    webhook_secret TEXT NOT NULL,
+    webhook_id BIGINT,
+    repo_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status_report JSONB NOT NULL DEFAULT '{}'::jsonb,
+    sync_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (sync_status IN ('pending', 'syncing', 'ready', 'failed')),
+    sync_error TEXT,
+    sync_started_at TIMESTAMPTZ,
+    resync_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    head_sha TEXT,
+    last_synced_at TIMESTAMPTZ,
+    linked_by TEXT REFERENCES users(clerk_user_id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS github_links_repo_idx ON github_links(lower(owner), lower(repo));
+-- A user's connected GitHub account (OAuth). A link made through it records the
+-- account owner in account_user_id and reads with their token; no FK, so a
+-- disconnected account surfaces as "reconnect" rather than silently going anonymous.
+CREATE TABLE IF NOT EXISTS github_accounts (
+    user_id TEXT PRIMARY KEY REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+    github_user_id BIGINT NOT NULL,
+    login TEXT NOT NULL,
+    name TEXT,
+    avatar_url TEXT,
+    access_token TEXT NOT NULL,
+    scopes TEXT NOT NULL DEFAULT '',
+    invalid_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE github_links ADD COLUMN IF NOT EXISTS account_user_id TEXT;
+CREATE TABLE IF NOT EXISTS github_commits (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    sha TEXT NOT NULL,
+    author_login TEXT,
+    author_name TEXT,
+    author_email TEXT,
+    author_avatar TEXT,
+    committed_at TIMESTAMPTZ,
+    message TEXT NOT NULL DEFAULT '',
+    url TEXT,
+    additions INTEGER NOT NULL DEFAULT 0,
+    deletions INTEGER NOT NULL DEFAULT 0,
+    files JSONB NOT NULL DEFAULT '[]'::jsonb,
+    analysis JSONB NOT NULL DEFAULT '{}'::jsonb,
+    analyzed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (project_id, sha)
+);
+CREATE INDEX IF NOT EXISTS github_commits_project_time_idx
+    ON github_commits(project_id, committed_at DESC);
+
 -- Migrate existing project creators into project_members as managers
 INSERT INTO project_members (project_id, user_id, role, accepted_at)
 SELECT p.id, p.user_id, 'manager', p.created_at

@@ -16,7 +16,7 @@ from app.models.project import (
     ProjectDocumentCreate,
     migration_idea,
 )
-from app.orchestrator.manager import enqueue_analysis
+from app.orchestrator.manager import enqueue_analysis, enqueue_approval, stop_run
 from app.services import projects as project_service
 from app.services.ai_client import ai_services
 from app.services import workspaces as workspace_service
@@ -65,19 +65,56 @@ async def retry_project(
     req: RetryProjectRequest | None = None,
     user: CurrentUser = Depends(current_user),
 ) -> AnalyzeResponse:
-    """Retry all failed or incomplete sections for a project without losing already completed deliverables."""
+    """Resume a failed or stalled run from its last checkpoint.
+
+    Completed deliverables are kept: the workflow continues from the agent that
+    failed. Calling this while a run is already queued or running is a no-op.
+    """
     doc = await project_service.get_project(project_id, user.id)
     if not doc:
         raise HTTPException(status_code=404, detail="project not found")
-    await project_service.set_status(project_id, "queued", progress=doc.get("progress", 0), error=None)
     targets = list(req.target_agents) if req else []
     valid_agents = {"ceo", "product_manager", "architect", "sprint_planner", "risk", "team_allocation", "timeline", "integration"}
     unknown = sorted(set(targets) - valid_agents)
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown target agents: {', '.join(unknown)}")
-    await enqueue_analysis(project_id, targets or None)
+    if doc.get("status") == "awaiting_approval":
+        raise HTTPException(
+            status_code=409,
+            detail="this project is waiting for your approval; approve or request changes to continue",
+        )
+    _, created = await enqueue_analysis(project_id, targets or None, resume=True)
+    if not created:
+        logger.info("Retry for %s ignored: a run is already in progress", project_id)
+        return AnalyzeResponse(project_id=project_id, status=str(doc.get("status") or "queued"))
+    await project_service.set_status(project_id, "queued", error=None)
     logger.info("Enqueued retry for project %s", project_id)
     return AnalyzeResponse(project_id=project_id, status="queued")
+
+
+@router.post("/{project_id}/run", response_model=AnalyzeResponse, status_code=202)
+async def run_project(project_id: str, user: CurrentUser = Depends(current_user)) -> AnalyzeResponse:
+    """Start or resume the workflow (manager only). Finished agents are not re-run."""
+    await _require_run_permission(project_id, user)
+    return await retry_project(project_id, None, user)
+
+
+@router.post("/{project_id}/stop", response_model=AnalyzeResponse, status_code=202)
+async def stop_project(project_id: str, user: CurrentUser = Depends(current_user)) -> AnalyzeResponse:
+    """Stop the running workflow (manager only). Completed sections are kept."""
+    await _require_run_permission(project_id, user)
+    if not await stop_run(project_id):
+        raise HTTPException(status_code=409, detail="nothing is running for this project")
+    return AnalyzeResponse(project_id=project_id, status="stopped")
+
+
+async def _require_run_permission(project_id: str, user: CurrentUser) -> None:
+    from app.services import rbac
+    role = await project_service.project_role(project_id, user.id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not rbac.check_permission(role, "run_analysis"):
+        raise HTTPException(status_code=403, detail="only project managers can run or stop the workflow")
 
 
 class ApproveRequest(BaseModel):
@@ -94,16 +131,18 @@ async def approve_project(
     doc = await project_service.get_project(project_id, user.id)
     if not doc:
         raise HTTPException(status_code=404, detail="project not found")
-        
+
     role = await project_service.project_role(project_id, user.id)
     if role not in {"manager"}:
         raise HTTPException(status_code=403, detail="approval permission required")
-        
-    await project_service.set_status(project_id, "running", progress=doc.get("progress", 0))
-    from app.orchestrator.manager import enqueue_approval
-    await enqueue_approval(project_id, req.phase, req.approved, req.feedback)
-    
-    return AnalyzeResponse(project_id=project_id, status="running")
+    if doc.get("status") != "awaiting_approval":
+        raise HTTPException(status_code=409, detail="this project is not waiting for approval")
+
+    _, created = await enqueue_approval(project_id, req.phase, req.approved, req.feedback)
+    if not created:
+        raise HTTPException(status_code=409, detail="a run is already in progress for this project")
+    await project_service.set_status(project_id, "queued", error=None)
+    return AnalyzeResponse(project_id=project_id, status="queued")
 
 
 @router.post("/{project_id}/chat")
@@ -122,24 +161,33 @@ async def chat(
         logger.warning("Assistant chat failed for %s: %s", project_id, exc)
         raise HTTPException(status_code=502, detail="assistant unavailable")
     reply = result.get("reply", "")
-    edits = result.get("edits", [])
-    updated_doc = doc
+    edits = [e for e in (result.get("edits") or []) if isinstance(e, dict) and e.get("path")]
+    updated_doc = None
+    edit_error = None
+    applied: list[dict[str, Any]] = []
     if edits and req.apply_changes:
         from app.services import rbac
         if not await rbac.check_project_permission(project_id, user.id, "edit_content"):
-            raise HTTPException(status_code=403, detail="edit permission required")
-        for edit in edits:
-            updated_doc = await project_service.edit_content(
-                project_id, user.id, str(edit.get("path", "")), edit.get("value"),
-                int(updated_doc.get("revision", 0)), operation="flowmate",
-            )
+            edit_error = "You don't have permission to edit this project, so no changes were made."
+        else:
+            try:
+                updated_doc = await project_service.apply_edits(project_id, user.id, edits)
+                applied = edits
+            except project_service.EditError as exc:
+                edit_error = f"No changes were made: {exc}."
     await project_service.add_ai_response(
         project_id, user.id, "chat", role="user", content=req.message
     )
     await project_service.add_ai_response(
         project_id, user.id, "chat", role="assistant", content=reply
     )
-    return {"reply": reply, "edits": edits, "project": updated_doc if edits else None}
+    return {
+        "reply": reply,
+        "edits": applied,
+        "proposed_edits": edits if not applied else [],
+        "edit_error": edit_error,
+        "project": updated_doc,
+    }
 
 
 @router.get("")
@@ -266,6 +314,38 @@ async def update_task(project_id:str,task_index:int,req:TaskUpdateRequest,user:C
         task["status"]=req.status
     updated=await project_service.edit_content(project_id,user.id,f"/backlog/tasks/{task_index}",task,req.expected_revision,operation="task_update")
     return {"project":updated,"task":task}
+
+
+class AutoAssignRequest(BaseModel):
+    overwrite: bool = Field(default=False, description="Reassign tasks that already have an assignee")
+
+
+@router.post("/{project_id}/tasks/auto-assign")
+async def auto_assign_tasks(
+    project_id: str, req: AutoAssignRequest | None = None, user: CurrentUser = Depends(current_user)
+) -> dict[str, Any]:
+    """Assign backlog tasks to members by skill fit and workload (managers only)."""
+    from app.services import rbac
+    from app.services.task_assignment import auto_assign
+    role = await rbac.get_project_role(project_id, user.id)
+    if not role:
+        raise HTTPException(404, "project not found")
+    if not rbac.check_permission(role, "assign_tasks"):
+        raise HTTPException(403, "only project managers can assign tasks")
+    doc = await project_service.get_project(project_id, user.id)
+    tasks = ((doc or {}).get("backlog") or {}).get("tasks") or []
+    if not tasks:
+        raise HTTPException(409, "this project has no backlog tasks yet")
+    members = await rbac.list_project_members(project_id)
+    if not any(m.get("role") != "manager" for m in members):
+        raise HTTPException(409, "invite developers or testers to the project before auto-assigning")
+    updated_tasks, made = auto_assign(tasks, members, overwrite=bool(req and req.overwrite))
+    if not made:
+        return {"project": doc, "assignments": []}
+    updated = await project_service.edit_content(
+        project_id, user.id, "/backlog/tasks", updated_tasks, operation="auto_assign",
+    )
+    return {"project": updated, "assignments": made}
 
 
 @router.post("/{project_id}/undo")

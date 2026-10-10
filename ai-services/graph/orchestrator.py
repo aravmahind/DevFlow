@@ -19,6 +19,7 @@ Key design decisions:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ from langgraph.graph import END, StateGraph
 from agents.base import Agent
 from agents.registry import get_agent, AGENTS
 from llm.router import resolve
+from services.db_client import fetch_github_snapshot, fetch_project_document
+from services.diagram import build_diagram, build_mermaid
 from state.project_state import ProjectState
 from utils.logging import get_logger
 from workflows.events import EventEmitter
@@ -97,6 +100,9 @@ async def run_architect_agent(state: ProjectState) -> dict[str, Any]:
         ctx["prior_architecture"] = state["architecture"]
 
     data = await agent.run(ctx)
+    # Deterministic diagram from the architecture, so the UI always has a graph.
+    data["diagram"] = build_diagram(data)
+    data["mermaid"] = build_mermaid(data)
     return {
         "architecture": data,
         "current_phase": "architecture",
@@ -145,6 +151,23 @@ async def run_github_monitor(state: ProjectState) -> dict[str, Any]:
         "backlog": state.get("backlog", {}),
         "current_sprint": state.get("current_sprint", 1),
     }
+    # When a repo is linked, the GitHub tracker keeps a commit-grounded report in this
+    # agent's schema, refreshed on every push. Use it directly: it is more accurate
+    # than an LLM re-reading a truncated summary, and costs no tokens. Fall back to
+    # the agent (given the tracker snapshot, if any) only when that report is missing.
+    project_id = str(state.get("project_id", ""))
+    snapshot = await fetch_github_snapshot(project_id)
+    if snapshot:
+        record = await fetch_project_document(project_id) or {}
+        tracked = (record.get("document") or {}).get("github_progress") or {}
+        if tracked.get("source") == "github_tracker" and tracked.get("data_available"):
+            logger.info("Using GitHub tracker report for project %s", project_id)
+            return {
+                "github_progress": tracked,
+                "current_phase": "execution",
+                "workflow_status": "running",
+            }
+        ctx["github_data"] = snapshot
 
     data = await agent.run(ctx)
     return {
@@ -383,20 +406,30 @@ def build_orchestrator_graph() -> StateGraph:
 # can be initialized asynchronously.
 
 _compiled_graph = None
+_compile_lock = asyncio.Lock()
 
 
 async def get_compiled_graph():
-    """Get or create the compiled orchestrator graph with checkpointing."""
+    """Get or create the compiled orchestrator graph with checkpointing.
+
+    A failure (e.g. database down) is not cached; the next request tries again.
+    """
     global _compiled_graph
     if _compiled_graph is not None:
         return _compiled_graph
+    async with _compile_lock:
+        if _compiled_graph is None:
+            _compiled_graph = await _compile()
+    return _compiled_graph
 
+
+async def _compile():
     from graph.checkpointer import get_checkpointer
 
     checkpointer = await get_checkpointer()
     graph = build_orchestrator_graph()
 
-    _compiled_graph = graph.compile(
+    compiled = graph.compile(
         checkpointer=checkpointer,
         interrupt_before=[
             "await_req_approval",
@@ -407,4 +440,4 @@ async def get_compiled_graph():
     )
 
     logger.info("LangGraph orchestrator compiled with %d nodes", len(graph.nodes))
-    return _compiled_graph
+    return compiled

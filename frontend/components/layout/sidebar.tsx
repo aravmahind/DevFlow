@@ -3,6 +3,7 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore, type WorkspaceMode } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/lib/project-store'
 import Link from 'next/link'
 import {
@@ -24,6 +25,7 @@ import {
   Loader2,
   ArrowLeft,
   FolderKanban,
+  Github,
 } from 'lucide-react'
 
 interface SidebarItem {
@@ -57,6 +59,7 @@ const groups: SidebarGroup[] = [
     items: [
       { mode: 'backlog', label: 'Backlog', icon: <ListChecks /> },
       { mode: 'sprint', label: 'Sprint Board', icon: <KanbanSquare /> },
+      { mode: 'github', label: 'GitHub Tracker', icon: <Github /> },
       { mode: 'risks', label: 'Risks', icon: <ShieldAlert /> },
     ],
   },
@@ -80,7 +83,7 @@ const groups: SidebarGroup[] = [
 ]
 
 export function Sidebar() {
-  const { sidebarCollapsed, activeWorkspaceMode, setActiveWorkspaceMode } = useAppStore()
+  const { sidebarCollapsed, activeWorkspaceMode, setActiveWorkspaceMode } = useAppStore(useShallow((s) => ({ sidebarCollapsed: s.sidebarCollapsed, activeWorkspaceMode: s.activeWorkspaceMode, setActiveWorkspaceMode: s.setActiveWorkspaceMode })))
   const status = useProjectStore((s) => s.status)
   const progress = useProjectStore((s) => s.progress)
 

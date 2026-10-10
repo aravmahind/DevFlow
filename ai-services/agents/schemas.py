@@ -223,6 +223,22 @@ class ArchitectureLayer(BaseModel):
         return data
 
 
+class DataFlow(BaseModel):
+    source: str = Field(default="", description="A component name, exactly as listed in a layer")
+    target: str = Field(default="", description="A component name, exactly as listed in a layer")
+    label: str = Field(default="", description="What flows, e.g. 'REST/JSON', 'SQL', 'events'")
+
+    @model_validator(mode="before")
+    @classmethod
+    def from_string(cls, data: Any) -> Any:
+        # Accept "Web App -> API Gateway: REST" as well as objects.
+        if isinstance(data, str):
+            head, _, label = data.partition(":")
+            source, _, target = head.partition("->")
+            return {"source": source.strip(), "target": target.strip(), "label": label.strip()}
+        return data
+
+
 class ArchitectureBundle(BaseModel):
     frontend: ArchitectureLayer = Field(default_factory=ArchitectureLayer)
     backend: ArchitectureLayer = Field(default_factory=ArchitectureLayer)
@@ -231,6 +247,10 @@ class ArchitectureBundle(BaseModel):
     technology_recommendations: List[str] = Field(default_factory=list)
     scalability_plan: List[str] = Field(default_factory=list)
     integration_points: List[str] = Field(default_factory=list)
+    data_flows: List[DataFlow] = Field(
+        default_factory=list,
+        description="5-10 directed calls/data flows between components, used to draw the diagram",
+    )
     # Explanation in simple terms for non-technical managers
     architecture_rationale: str = Field(
         default="",

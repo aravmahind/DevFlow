@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { getAuthToken, getProject, streamUrl } from './api'
 import { useProjectStore } from './project-store'
-import type { OrchestrationEvent } from './project-types'
+import type { OrchestrationEvent, ProjectDoc } from './project-types'
 
 /**
  * Connects to the backend WebSocket for a project, applies streamed
@@ -15,6 +15,13 @@ import type { OrchestrationEvent } from './project-types'
  * - Polling fallback every 5s to keep the UI in sync if WS is flaky
  * - Heartbeat detection to catch silent WS deaths
  */
+const ACTIVE_STATUSES = new Set(['queued', 'running'])
+
+/** Cheap change detector for a project document. */
+function signature(doc: ProjectDoc): string {
+  return [doc.updated_at, doc.revision, doc.status, doc.progress, doc.error].join('|')
+}
+
 export function useOrchestrationStream(projectId: string | null) {
   const applyEvent = useProjectStore((s) => s.applyEvent)
   const setProject = useProjectStore((s) => s.setProject)
@@ -22,18 +29,32 @@ export function useOrchestrationStream(projectId: string | null) {
   const reconnectAttempts = useRef(0)
   const maxReconnectAttempts = 10
 
-  // Stable polling fallback: refetch project every 5s for statuses that are in-flight
+  // Polling fallback. It only touches the store when the document actually
+  // changed (replacing it re-renders every view, resets scroll and can clobber
+  // in-progress edits), and it slows down once nothing is running.
   useEffect(() => {
     if (!projectId) return
-    const poll = setInterval(async () => {
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = async () => {
       try {
         const doc = await getProject(projectId)
-        setProject(doc)
+        const current = useProjectStore.getState().project
+        if (!stopped && (!current || current.id !== doc.id || signature(current) !== signature(doc))) {
+          setProject(doc)
+        }
       } catch {
         /* ignore */
       }
-    }, 5000)
-    return () => clearInterval(poll)
+      if (stopped) return
+      const active = ACTIVE_STATUSES.has(useProjectStore.getState().project?.status || '')
+      timer = setTimeout(tick, active ? 5000 : 30000)
+    }
+    timer = setTimeout(tick, 5000)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
   }, [projectId, setProject])
 
   // WebSocket connection with reconnection

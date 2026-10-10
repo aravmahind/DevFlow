@@ -3,7 +3,7 @@ import type { NextFetchEvent, NextRequest } from 'next/server'
 import { clerkMiddleware } from '@clerk/nextjs/server'
 
 const BYPASS_AUTH = process.env.NEXT_PUBLIC_BYPASS_AUTH !== 'false'
-const PROTECTED_PREFIXES = ['/workspace', '/my-projects', '/my-tasks', '/invite']
+const PROTECTED_PREFIXES = ['/workspace', '/my-projects', '/my-tasks', '/invite', '/github']
 
 const clerkHandler = clerkMiddleware(async (auth, request) => {
   if (PROTECTED_PREFIXES.some((path) => request.nextUrl.pathname.startsWith(path))) {

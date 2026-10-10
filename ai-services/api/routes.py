@@ -21,6 +21,7 @@ from agents.registry import AGENTS, get_agent
 from api.auth import require_internal_auth
 from graph.orchestrator import get_compiled_graph
 from services.assistant import chat as assistant_chat
+from services import github_insights
 from utils.logging import get_logger
 
 logger = get_logger("api")
@@ -42,6 +43,10 @@ class WorkflowRunRequest(BaseModel):
         default_factory=dict,
         description="Optional initial state overrides"
     )
+    resume: bool = Field(
+        default=False,
+        description="Continue from the project's last checkpoint instead of starting over",
+    )
 
 
 class ApprovalRequest(BaseModel):
@@ -49,6 +54,10 @@ class ApprovalRequest(BaseModel):
     phase: str
     approved: bool
     feedback: str = ""
+    decision_id: str | None = Field(
+        default=None,
+        description="Idempotency key: a decision already applied under this id is not applied again",
+    )
 
 
 class ChatMessage(BaseModel):
@@ -89,6 +98,112 @@ async def run_agent(agent_id: str, req: AgentRunRequest) -> dict[str, Any]:
     return {"agent": agent_id, "node": agent.node, "data": data}
 
 
+_HEARTBEAT_SECONDS = 15.0
+_GATE_FOR_PHASE = {
+    "requirements": "await_req_approval",
+    "architecture": "await_arch_approval",
+    "sprint_planning": "await_sprint_approval",
+    "sprint_review": "await_sprint_review",
+}
+_PHASE_FOR_GATE = {gate: phase for phase, gate in _GATE_FOR_PHASE.items()}
+
+
+def _line(event: dict[str, Any]) -> str:
+    return json.dumps(event, default=str) + "\n"
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Provider/client errors (bad key, unknown model, bad request) won't fix
+    themselves on retry; throttles, outages, timeouts and flaky output might."""
+    if _is_daily_quota(exc):
+        return False
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return status >= 500 or status in (408, 409, 425, 429)
+    return True
+
+
+def _is_daily_quota(exc: BaseException) -> bool:
+    # A per-day limit won't reset within any sensible retry backoff.
+    text = str(exc).lower()
+    return "per day" in text or "(tpd)" in text or "(rpd)" in text
+
+
+def _error_event(exc: BaseException) -> str:
+    message = str(exc) or type(exc).__name__
+    if _is_daily_quota(exc):
+        message = ("The LLM provider's daily token quota is used up. Retry once it resets "
+                   f"or switch models in .env. ({message[:300]})")
+    return _line({"type": "error", "message": message, "retryable": _is_retryable(exc)})
+
+
+def _translate(event: Any) -> list[str]:
+    if not (isinstance(event, tuple) and len(event) == 2 and isinstance(event[0], str)):
+        return []
+    mode, payload = event
+    if mode == "debug" and payload.get("type") == "task:runs":
+        node_name = payload.get("payload", {}).get("name")
+        if node_name and not node_name.startswith("__"):
+            return [_line({
+                "type": "log",
+                "agent": node_name,
+                "level": "info",
+                "message": f"Starting {node_name} processing...",
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })]
+    elif mode == "updates":
+        # payload maps node_name -> state_update
+        return [_line({"type": "node_update", "node": node, "state": update})
+                for node, update in payload.items()]
+    return []
+
+
+async def _run_graph(compiled: Any, inputs: Any, config: dict[str, Any]):
+    """Stream graph events, emitting heartbeats while a node is busy.
+
+    If the client disconnects, the generator is closed and the graph run is
+    cancelled with it, so a retried run never races an abandoned one.
+    """
+    queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+    async def pump() -> None:
+        try:
+            async for event in compiled.astream(inputs, config, stream_mode=["updates", "debug"]):
+                await queue.put(("event", event))
+            await queue.put(("done", None))
+        except Exception as exc:
+            await queue.put(("error", exc))
+
+    task = asyncio.create_task(pump())
+    try:
+        while True:
+            try:
+                kind, item = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                yield _line({"type": "heartbeat"})
+                continue
+            if kind == "done":
+                return
+            if kind == "error":
+                raise item
+            for line in _translate(item):
+                yield line
+    finally:
+        task.cancel()
+
+
+async def _outcome(compiled: Any, config: dict[str, Any]) -> str:
+    """The terminal event for the graph's current checkpoint."""
+    state = await compiled.aget_state(config)
+    if state.next:
+        next_node = state.next[0]
+        pending = state.values.get("pending_approval") or _PHASE_FOR_GATE.get(next_node)
+        return _line({"type": "paused_for_approval", "pending_approval": pending})
+    return _line({"type": "run_complete"})
+
+
 @router.post("/workflow/stream")
 async def stream_workflow(req: WorkflowRunRequest) -> StreamingResponse:
     """Stream LangGraph progress events in real-time as newline-delimited JSON."""
@@ -96,66 +211,31 @@ async def stream_workflow(req: WorkflowRunRequest) -> StreamingResponse:
         try:
             compiled = await get_compiled_graph()
             config = {"configurable": {"thread_id": req.project_id}}
-            
-            # Prepare initial state
-            initial_state = {
+            inputs: Any = {
                 "project_id": req.project_id,
                 "idea": req.idea,
                 "title": req.title or req.idea[:50],
                 **req.state_updates
             }
 
-            # Start or resume the graph
-            async for event in compiled.astream(initial_state, config, stream_mode=["updates", "debug"]):
-                if len(event) == 2 and isinstance(event[0], str):
-                    mode, payload = event
-                    
-                    if mode == "debug" and payload.get("type") == "task:runs":
-                        node_name = payload.get("payload", {}).get("name")
-                        if node_name and not node_name.startswith("__"):
-                            yield json.dumps({
-                                "type": "log",
-                                "agent": node_name,
-                                "level": "info",
-                                "message": f"Starting {node_name} processing...",
-                                "ts": datetime.now(timezone.utc).isoformat()
-                            }) + "\n"
-                            
-                    elif mode == "updates":
-                        # payload is a dict mapping node_name -> state_update
-                        for node, state_update in payload.items():
-                            msg = {
-                                "type": "node_update",
-                                "node": node,
-                                "state": state_update
-                            }
-                            yield json.dumps(msg, default=str) + "\n"
+            if req.resume:
+                state = await compiled.aget_state(config)
+                if state.values:
+                    if not state.next or state.next[0] in _PHASE_FOR_GATE:
+                        # Finished, or parked at an approval gate: nothing to re-run.
+                        yield await _outcome(compiled, config)
+                        return
+                    # Continue from the node that failed; finished nodes are kept.
+                    logger.info("Resuming %s at %s", req.project_id, state.next[0])
+                    inputs = None
 
-            # Check if graph ended or paused for approval
-            final_state = await compiled.aget_state(config)
-            if final_state.next:
-                # Graph paused at an interrupt
-                next_node = final_state.next[0]
-                pending = final_state.values.get("pending_approval")
-                if not pending:
-                    if next_node == "await_req_approval": pending = "requirements"
-                    elif next_node == "await_arch_approval": pending = "architecture"
-                    elif next_node == "await_sprint_approval": pending = "sprint_planning"
-                    elif next_node == "await_sprint_review": pending = "sprint_review"
-                
-                yield json.dumps({
-                    "type": "paused_for_approval",
-                    "pending_approval": pending
-                }) + "\n"
-            else:
-                yield json.dumps({"type": "run_complete"}) + "\n"
+            async for line in _run_graph(compiled, inputs, config):
+                yield line
+            yield await _outcome(compiled, config)
 
         except Exception as exc:
             logger.exception("Workflow failed for %s", req.project_id)
-            yield json.dumps({
-                "type": "error",
-                "message": str(exc),
-            }) + "\n"
+            yield _error_event(exc)
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
@@ -168,87 +248,55 @@ async def approve_workflow(req: ApprovalRequest) -> StreamingResponse:
             compiled = await get_compiled_graph()
             config = {"configurable": {"thread_id": req.project_id}}
             state = await compiled.aget_state(config)
-            
-            if not state.next:
-                yield json.dumps({"type": "error", "message": "Graph is not paused."}) + "\n"
+            gate = _GATE_FOR_PHASE.get(req.phase)
+            if gate is None:
+                yield _line({"type": "error", "retryable": False,
+                             "message": f"Unknown approval phase '{req.phase}'"})
+                return
+            if not state.values:
+                yield _line({"type": "error", "retryable": False,
+                             "message": "No saved workflow state for this project; use Retry to rerun it"})
                 return
 
-            # Update state with approval decision
-            approvals = state.values.get("approvals", {})
-            approvals[req.phase] = {
-                "approved": req.approved,
-                "feedback": req.feedback,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            
-            update: dict[str, Any] = {
-                "approvals": approvals,
-                "pending_approval": None,
-            }
-            
-            if not req.approved and req.feedback:
-                manager_feedback = state.values.get("manager_feedback", [])
-                manager_feedback.append({
-                    "phase": req.phase, 
-                    "feedback": req.feedback,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-                update["manager_feedback"] = manager_feedback
+            applied = state.values.get("approvals", {}).get(req.phase, {})
+            already_applied = bool(req.decision_id) and applied.get("decision_id") == req.decision_id
 
-            # We MUST use `as_node=state.next[0]` to pretend the update came from the node that paused.
-            # Otherwise, LangGraph simply re-runs the paused node and asks for approval again!
-            await compiled.aupdate_state(config, update, as_node=state.next[0])
-            
-            # Resume execution by passing None as input
-            async for event in compiled.astream(None, config, stream_mode=["updates", "debug"]):
-                if len(event) == 2 and isinstance(event[0], str):
-                    mode, payload = event
-                    
-                    if mode == "debug" and payload.get("type") == "task:runs":
-                        node_name = payload.get("payload", {}).get("name")
-                        if node_name and not node_name.startswith("__"):
-                            yield json.dumps({
-                                "type": "log",
-                                "agent": node_name,
-                                "level": "info",
-                                "message": f"Starting {node_name} processing...",
-                                "ts": datetime.now(timezone.utc).isoformat()
-                            }) + "\n"
-                            
-                    elif mode == "updates":
-                        for node, state_update in payload.items():
-                            msg = {
-                                "type": "node_update",
-                                "node": node,
-                                "state": state_update
-                            }
-                            yield json.dumps(msg, default=str) + "\n"
-                    
-            # Check if graph ended or paused for approval
-            final_state = await compiled.aget_state(config)
-            if final_state.next:
-                # Graph paused at an interrupt
-                next_node = final_state.next[0]
-                pending = final_state.values.get("pending_approval")
-                if not pending:
-                    if next_node == "await_req_approval": pending = "requirements"
-                    elif next_node == "await_arch_approval": pending = "architecture"
-                    elif next_node == "await_sprint_approval": pending = "sprint_planning"
-                    elif next_node == "await_sprint_review": pending = "sprint_review"
-                
-                yield json.dumps({
-                    "type": "paused_for_approval",
-                    "pending_approval": pending
-                }) + "\n"
-            else:
-                yield json.dumps({"type": "run_complete"}) + "\n"
+            if state.next and state.next[0] == gate and not already_applied:
+                # Update state with approval decision
+                approvals = dict(state.values.get("approvals", {}))
+                approvals[req.phase] = {
+                    "approved": req.approved,
+                    "feedback": req.feedback,
+                    "decision_id": req.decision_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                update: dict[str, Any] = {"approvals": approvals, "pending_approval": None}
+                if not req.approved and req.feedback:
+                    manager_feedback = list(state.values.get("manager_feedback", []))
+                    manager_feedback.append({
+                        "phase": req.phase,
+                        "feedback": req.feedback,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                    update["manager_feedback"] = manager_feedback
+                # as_node makes the update count as the gate's output; otherwise
+                # LangGraph re-runs the gate and asks for approval again.
+                await compiled.aupdate_state(config, update, as_node=gate)
+            elif not state.next or state.next[0] in _PHASE_FOR_GATE:
+                # Decision was applied by an earlier attempt and the graph has
+                # since finished or reached another gate: just report where it is.
+                yield await _outcome(compiled, config)
+                return
+            # Otherwise an earlier attempt applied the decision but failed mid-node:
+            # fall through and continue from that node.
+
+            async for line in _run_graph(compiled, None, config):
+                yield line
+            yield await _outcome(compiled, config)
 
         except Exception as exc:
             logger.exception("Approval resume failed for %s", req.project_id)
-            yield json.dumps({
-                "type": "error",
-                "message": str(exc),
-            }) + "\n"
+            yield _error_event(exc)
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
@@ -268,3 +316,53 @@ async def assistant(req: AssistantChatRequest) -> dict[str, Any]:
         logger.exception("Assistant chat failed")
         raise HTTPException(status_code=502, detail=f"assistant failed: {exc}")
     return result.model_dump()
+
+
+class GithubAnalyzeRequest(BaseModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    commits: list[dict[str, Any]] = Field(default_factory=list, max_length=40)
+
+
+class GithubSummaryRequest(BaseModel):
+    context: str = Field(..., max_length=20000)
+
+
+class GithubChatRequest(BaseModel):
+    context: str = Field(..., max_length=20000)
+    message: str
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+@router.post("/github/analyze-commits")
+async def github_analyze_commits(req: GithubAnalyzeRequest) -> dict[str, Any]:
+    """Classify commits and map them onto the project's plan items."""
+    try:
+        result = await github_insights.analyze_commits(req.items, req.commits)
+    except Exception as exc:
+        logger.exception("Commit analysis failed")
+        raise HTTPException(status_code=502, detail=f"commit analysis failed: {exc}")
+    return result.model_dump()
+
+
+@router.post("/github/summarize")
+async def github_summarize(req: GithubSummaryRequest) -> dict[str, Any]:
+    try:
+        result = await github_insights.summarize_repo(req.context)
+    except Exception as exc:
+        logger.exception("Repo summary failed")
+        raise HTTPException(status_code=502, detail=f"repo summary failed: {exc}")
+    return result.model_dump()
+
+
+@router.post("/github/chat")
+async def github_chat(req: GithubChatRequest) -> dict[str, Any]:
+    if not req.message.strip():
+        raise HTTPException(status_code=422, detail="message is required")
+    try:
+        reply = await github_insights.repo_chat(
+            req.context, req.message, [{"role": m.role, "content": m.content} for m in req.history]
+        )
+    except Exception as exc:
+        logger.exception("Repo chat failed")
+        raise HTTPException(status_code=502, detail=f"repo chat failed: {exc}")
+    return {"reply": reply}
