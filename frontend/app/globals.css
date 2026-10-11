@@ -3,63 +3,83 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ===================================================================== */
+/*  "Signal" theme — monochrome, one accent (signal lime) for live state. */
+/*  Neutrals carry the app; lime appears only on dark surfaces.           */
+/* ===================================================================== */
 :root {
-  /* Light theme: Crisp, professional modern SaaS palette */
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  
-  /* Card and surface colors */
+  --background: #f6f6f5;
+  --foreground: #0a0a0a;
   --card: #ffffff;
-  --card-foreground: #0f172a;
-  
-  /* Popover */
+  --card-foreground: #0a0a0a;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  
-  /* Primary - High-contrast Royal Indigo / Deep Slate */
-  --primary: #2563eb;
+  --popover-foreground: #0a0a0a;
+  --primary: #0a0a0a;
   --primary-foreground: #ffffff;
-  
-  /* Secondary - Soft slate button & hover surface */
-  --secondary: #f1f5f9;
-  --secondary-foreground: #1e293b;
-  
-  /* Muted elements and text */
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  
-  /* Accent - Ice Blue */
-  --accent: #eff6ff;
-  --accent-foreground: #1d4ed8;
-  
-  /* Destructive */
-  --destructive: #ef4444;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #f5f5f5;
+  --accent-foreground: #0a0a0a;
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  
-  /* Borders and inputs */
-  --border: #e2e8f0;
+  --border: #e5e5e5;
   --input: #ffffff;
-  --ring: #3b82f6;
-  
-  /* Chart colors - clear, accessible professional palette */
-  --chart-1: #2563eb;
-  --chart-2: #059669;
-  --chart-3: #d97706;
-  --chart-4: #7c3aed;
-  --chart-5: #0284c7;
-  
-  /* Radius */
-  --radius: 0.625rem;
-  
-  /* Sidebar */
-  --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
-  --sidebar-primary: #2563eb;
+  --ring: #0a0a0a;
+  --signal: #c8f26b;
+  --chart-1: #0a0a0a;
+  --chart-2: #737373;
+  --chart-3: #a3a3a3;
+  --chart-4: #404040;
+  --chart-5: #d4d4d4;
+  --radius: 0.75rem;
+  --sidebar: transparent;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #0a0a0a;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f8fafc;
-  --sidebar-accent-foreground: #0f172a;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #3b82f6;
+  --sidebar-accent: #f5f5f5;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #0a0a0a;
+}
+
+/* Re-skin the palettes the components hard-code: "blue" is the action colour
+   (now black/greys) and "slate" becomes the single neutral grey family.
+   Semantic colours (emerald / amber / rose) keep their meaning. */
+@theme {
+  --color-signal: #c8f26b;
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f5f5f5;
+  --color-slate-200: #e5e5e5;
+  --color-slate-300: #d4d4d4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #737373;
+  --color-slate-600: #525252;
+  --color-slate-700: #404040;
+  --color-slate-800: #262626;
+  --color-slate-900: #171717;
+  --color-slate-950: #0a0a0a;
+  --color-blue-50: #f5f5f5;
+  --color-blue-100: #ededed;
+  --color-blue-200: #e0e0e0;
+  --color-blue-300: #cfcfcf;
+  --color-blue-400: #8a8a8a;
+  --color-blue-500: #3a3a3a;
+  --color-blue-600: #0a0a0a;
+  --color-blue-700: #262626;
+  --color-blue-800: #171717;
+  --color-blue-900: #0a0a0a;
+  --color-blue-950: #0a0a0a;
+  --color-indigo-50: #f5f5f5;
+  --color-indigo-100: #ededed;
+  --color-indigo-200: #e0e0e0;
+  --color-indigo-500: #3a3a3a;
+  --color-indigo-600: #171717;
+  --color-indigo-700: #262626;
+  --color-sky-50: #f5f5f5;
+  --color-sky-500: #525252;
+  --color-sky-600: #404040;
 }
 
 @theme inline {
@@ -108,10 +128,18 @@
     @apply border-border outline-ring/50;
   }
   html {
-    @apply bg-background text-foreground antialiased;
+    @apply text-foreground antialiased;
+    /* Quiet grainy gradient: fine noise over two soft, low-chroma light pools. */
+    background-color: var(--background);
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.09'/%3E%3C/svg%3E"),
+      radial-gradient(60rem 40rem at 85% -10%, rgba(200, 242, 107, 0.10), transparent 60%),
+      radial-gradient(50rem 36rem at -10% 110%, rgba(10, 10, 10, 0.05), transparent 60%);
+    background-attachment: fixed;
   }
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply text-foreground font-sans;
+    background: transparent;
   }
 }
 
@@ -119,6 +147,36 @@
 /*  Clean Professional SaaS Surfaces & Components                */
 /* ============================================================= */
 @layer components {
+  /* Liquid glass — for chrome that floats over content (bars, sidebars,
+     popovers). Content cards stay solid so text stays crisp. */
+  .liquid-glass {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58));
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 -1px 0 rgba(10, 10, 10, 0.04),
+      0 1px 2px rgba(10, 10, 10, 0.04),
+      0 12px 32px -16px rgba(10, 10, 10, 0.18);
+  }
+  .liquid-glass-dark {
+    background: linear-gradient(180deg, rgba(23, 23, 23, 0.86), rgba(10, 10, 10, 0.8));
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px -20px rgba(0, 0, 0, 0.5);
+    color: #fafafa;
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .liquid-glass { background: rgba(255, 255, 255, 0.96); }
+    .liquid-glass-dark { background: #0a0a0a; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .liquid-glass { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .liquid-glass-dark { background: #0a0a0a; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+
   /* Crisp, clean light card surface */
   .glass-panel {
     @apply bg-white border border-slate-200/90 shadow-sm rounded-xl;
@@ -173,11 +231,11 @@
 @layer utilities {
   /* Refined, high-contrast gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-slate-900 via-blue-700 to-indigo-700 bg-clip-text text-transparent;
+    @apply text-slate-950;
   }
   
   .text-gradient-warm {
-    @apply bg-gradient-to-r from-blue-700 via-indigo-600 to-sky-600 bg-clip-text text-transparent;
+    @apply text-slate-950;
   }
 
   /* Clean subtle technical grid backdrop */
@@ -201,4 +259,15 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+}
+
+@keyframes signal-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200, 242, 107, 0.45); }
+  50% { box-shadow: 0 0 0 8px rgba(200, 242, 107, 0); }
+}
+@keyframes signal-flow { to { stroke-dashoffset: -30; } }
+.signal-pulse { animation: signal-pulse 1.8s ease-out infinite; }
+.signal-flow { stroke-dasharray: 5 5; animation: signal-flow 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .signal-pulse, .signal-flow { animation: none; }
 }

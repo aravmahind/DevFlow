@@ -58,9 +58,6 @@ export function LandingNavbar() {
 
         {/* Center links */}
         <div className="hidden md:flex items-center gap-1">
-          <Link href="/architecture" className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors">
-            Architecture
-          </Link>
           {NAV_LINKS.map((l) => (
             <button
               key={l.href}
@@ -102,9 +99,6 @@ export function LandingNavbar() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <Link href="/architecture" onClick={() => setMobileOpen(false)} className="block w-full text-left px-3 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg">
-              Architecture
-            </Link>
             {NAV_LINKS.map((l) => (
               <button
                 key={l.href}

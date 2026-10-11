@@ -331,6 +331,8 @@ export function SprintBoardView() {
         </div>
       </div>
 
+      <TeamLoad tasks={allNormalizedTasks} users={users} />
+
       {viewMode === 'kanban' ? (
         <div className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[500px]">
           {KANBAN_COLUMNS.map((colName) => {
@@ -400,5 +402,52 @@ export function SprintBoardView() {
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Team load: assigned estimated days per member (open tasks), plus unassigned.
+// ---------------------------------------------------------------------------
+function TeamLoad({ tasks, users }: { tasks: any[]; users: any[] }) {
+  const open = tasks.filter((t) => !['done', 'complete', 'completed'].includes(String(t.status || '').toLowerCase()))
+  const days = (t: any) => Number(t.estimated_days) || 0
+  const people = users
+    .filter((u) => u.role !== 'manager' || open.some((t) => t.assignee_id === u.user_id))
+    .map((u) => {
+      const mine = open.filter((t) => t.assignee_id === u.user_id)
+      const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'Member'
+      return { id: u.user_id, name, spec: u.specialization || u.role, load: mine.reduce((a, t) => a + days(t), 0), count: mine.length }
+    })
+  const unassigned = open.filter((t) => !t.assignee_id)
+  if (!people.length && !unassigned.length) return null
+  const max = Math.max(1, ...people.map((p) => p.load))
+  return (
+    <section aria-label="Team load" className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3 mb-5">
+      {people.map((p) => (
+        <div key={p.id} className="bg-white border border-slate-200 rounded-lg px-3.5 py-3 flex items-center gap-3">
+          <span className="w-7 h-7 rounded-full bg-slate-800 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
+            {p.name.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+          </span>
+          <span className="flex-1 min-w-0 space-y-1.5">
+            <span className="flex justify-between gap-2 text-[13px]">
+              <span className="font-semibold truncate">{p.name}{p.spec ? <span className="font-normal text-slate-500"> · {p.spec}</span> : null}</span>
+              <span className="font-mono tabular-nums text-slate-600 shrink-0">{p.load}d</span>
+            </span>
+            <span className="block h-1 rounded-full bg-slate-100 overflow-hidden">
+              <span className="block h-full bg-slate-950 rounded-full" style={{ width: `${(p.load / max) * 100}%` }} />
+            </span>
+          </span>
+        </div>
+      ))}
+      {unassigned.length > 0 && (
+        <div className="border border-dashed border-slate-300 rounded-lg px-3.5 py-3 flex items-center gap-3">
+          <span className="w-7 h-7 rounded-full border-[1.5px] border-dashed border-slate-400 shrink-0" />
+          <span className="flex-1 flex justify-between gap-2 text-[13px]">
+            <span className="font-semibold">Unassigned</span>
+            <span className="font-mono tabular-nums text-slate-600">{unassigned.length} tasks · {unassigned.reduce((a, t) => a + days(t), 0)}d</span>
+          </span>
+        </div>
+      )}
+    </section>
   )
 }

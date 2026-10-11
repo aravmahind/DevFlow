@@ -21,14 +21,14 @@ export function MainLayout({ children }: MainLayoutProps) {
   const hasProject = Boolean(searchParams?.get('project') || storeProjectId)
 
   return (
-    <div className="w-screen h-screen bg-background overflow-hidden">
+    <div className="w-screen h-screen overflow-hidden">
       <TopNavbar />
       {hasProject && <Sidebar />}
       <AccountPanel />
 
       <motion.main
-        className="pt-16 transition-all duration-200 h-[calc(100vh-64px)] overflow-y-auto bg-slate-50"
-        animate={{ marginLeft: hasProject ? (sidebarCollapsed ? '70px' : '230px') : '0px' }}
+        className="pt-[76px] transition-all duration-200 h-screen overflow-y-auto"
+        animate={{ marginLeft: hasProject ? (sidebarCollapsed ? '76px' : '236px') : '0px' }}
         transition={{ duration: 0.2 }}
       >
         <div className="p-6 max-w-7xl mx-auto">

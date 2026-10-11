@@ -10,14 +10,15 @@ import { InlineEditable } from './workspace-editor'
 import type { ArchitectureBundle, ArchitectureLayer, DiagramEdge, DiagramNode } from '@/lib/project-types'
 
 const LAYER_META: { key: string; label: string; icon: any; color: string; bg: string; border: string; text: string }[] = [
-  { key: 'frontend', label: 'Frontend & Client Tier', icon: Layout, color: '#2563eb', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
-  { key: 'backend', label: 'API & Business Logic', icon: Server, color: '#7c3aed', bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700' },
-  { key: 'database', label: 'Data & Persistence Tier', icon: Database, color: '#059669', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
-  { key: 'infrastructure', label: 'Cloud & Infrastructure', icon: Cloud, color: '#d97706', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+  { key: 'frontend', label: 'Frontend & Client Tier', icon: Layout, color: '#0a0a0a', bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-950' },
+  { key: 'backend', label: 'API & Business Logic', icon: Server, color: '#404040', bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800' },
+  { key: 'database', label: 'Data & Persistence Tier', icon: Database, color: '#737373', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
+  { key: 'infrastructure', label: 'Cloud & Infrastructure', icon: Cloud, color: '#a3a3a3', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600' },
 ]
 
 const GROUP_X: Record<string, number> = { frontend: 30, backend: 300, database: 570, infrastructure: 840 }
-const GROUP_COLOR: Record<string, string> = { frontend: '#2563eb', backend: '#7c3aed', database: '#059669', infrastructure: '#d97706' }
+// Layers differ by lightness, not hue (one-accent theme; readable without colour vision).
+const GROUP_COLOR: Record<string, string> = { frontend: '#0a0a0a', backend: '#404040', database: '#737373', infrastructure: '#a3a3a3' }
 
 const LAYER_KEYS = ['frontend', 'backend', 'database', 'infrastructure'] as const
 const LAYER_TITLES: Record<string, string> = { frontend: 'Frontend', backend: 'Backend', database: 'Database', infrastructure: 'Infrastructure' }
@@ -87,9 +88,9 @@ export function ArchitectureView() {
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         style: {
-          background: isLayer ? GROUP_COLOR[n.group] ?? '#2563eb' : '#ffffff',
-          color: isLayer ? '#ffffff' : '#0f172a',
-          border: `1px solid ${isLayer ? GROUP_COLOR[n.group] : '#e2e8f0'}`,
+          background: isLayer ? GROUP_COLOR[n.group] ?? '#0a0a0a' : '#ffffff',
+          color: isLayer && n.group !== 'infrastructure' ? '#ffffff' : '#0a0a0a',
+          border: `1px solid ${isLayer ? GROUP_COLOR[n.group] : '#e5e5e5'}`,
           borderRadius: 8,
           fontSize: 11,
           fontWeight: isLayer ? 700 : 500,
@@ -105,7 +106,7 @@ export function ArchitectureView() {
       target: e.target,
       label: e.label || undefined,
       type: 'smoothstep',
-      markerEnd: e.label ? { type: MarkerType.ArrowClosed, color: '#64748b' } : undefined,
+      markerEnd: e.label ? { type: MarkerType.ArrowClosed, color: '#737373' } : undefined,
       animated: !!e.label,
       style: { stroke: '#94a3b8', strokeWidth: 1.5 },
       labelStyle: { fill: '#475569', fontSize: 10, fontWeight: 500 },

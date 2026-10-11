@@ -276,7 +276,7 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
           </div>
           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
             <motion.div
-              className="h-full bg-blue-600 rounded-full"
+              className="h-full bg-slate-950 rounded-full"
               initial={{ width: '5%' }}
               animate={{ width: `${Math.max(5, progress)}%` }}
               transition={{ duration: 0.3, ease: 'easeOut' }}
@@ -285,25 +285,27 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
         </div>
       </div>
 
+      <AgentConstellation />
+
       {project?.status === 'awaiting_approval' && project?.pending_approval && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <ShieldAlert className="w-6 h-6 text-amber-600" />
-            <h2 className="text-lg font-bold text-amber-900">Manager Approval Required</h2>
+        <div className="liquid-glass-dark rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-signal signal-pulse" />
+            <h2 className="text-lg font-semibold tracking-tight">Your approval is needed</h2>
           </div>
-          <p className="text-amber-800 text-sm mb-6">
-            The workflow has paused at phase: <strong>{project.pending_approval}</strong>. Please review the generated artifacts and either approve to continue, or provide feedback to revise them.
+          <p className="text-neutral-400 text-sm mb-5">
+            The run is paused after <strong className="text-white">{project.pending_approval.replace(/_/g, ' ')}</strong>. Approve to continue, or write feedback and send it back for a revision.
           </p>
           <div className="flex flex-col gap-3">
             <textarea
               id="feedback-input"
-              className="w-full border border-amber-300 rounded-md p-3 text-sm focus:ring-amber-500 focus:border-amber-500 bg-white"
+              className="w-full rounded-lg p-3 text-sm bg-white/5 border border-white/15 text-white placeholder:text-neutral-500 focus:outline-none focus:border-signal"
               rows={3}
               placeholder="Optional: Provide feedback for revision if rejecting..."
             />
             <div className="flex gap-3 mt-2">
               <button
-                className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-semibold hover:bg-emerald-700"
+                className="px-5 min-h-11 bg-signal text-slate-950 rounded-full text-sm font-semibold cursor-pointer"
                 onClick={async () => {
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
                   try {
@@ -315,10 +317,10 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
                   }
                 }}
               >
-                Approve & Continue
+                Approve & continue
               </button>
               <button
-                className="px-4 py-2 bg-white text-rose-600 border border-rose-300 rounded-md text-sm font-semibold hover:bg-rose-50"
+                className="px-5 min-h-11 text-white border border-white/20 rounded-full text-sm font-semibold hover:bg-white/10 cursor-pointer"
                 onClick={async () => {
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
                   if (!fb) { alert('Please provide feedback for revision'); return; }
@@ -331,7 +333,7 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
                   }
                 }}
               >
-                Reject & Revise
+                Send back with feedback
               </button>
             </div>
           </div>
@@ -548,5 +550,96 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Agent constellation: the AI org as a live graph. Done agents get a check,
+// the active one pulses in signal lime, queued ones are dashed.
+// ---------------------------------------------------------------------------
+const CONSTELLATION_POS = [
+  { left: 9, top: 50 }, { left: 25, top: 27 }, { left: 42, top: 50 },
+  { left: 59, top: 27 }, { left: 75, top: 50 }, { left: 90.5, top: 27 }, { left: 90.5, top: 75 },
+]
+
+type NodeState = 'done' | 'active' | 'waiting' | 'queued' | 'failed'
+
+function AgentConstellation() {
+  const nodes = useProjectStore((s) => s.nodes)
+  const project = useProjectStore((s) => s.project)
+  const status = useProjectStore((s) => s.status)
+  const projectAny = project as any
+
+  const states: NodeState[] = ALL_AGENTS.map((a) => {
+    const st = nodes[a.nodeId]?.status
+    if (st === 'failed') return 'failed'
+    if (status === 'awaiting_approval' && project?.pending_approval === a.nodeId) return 'waiting'
+    if (st === 'complete' || projectAny?.[a.deliverableKey]) return 'done'
+    if (st === 'thinking' || st === 'analyzing' || st === 'generating') return 'active'
+    return 'queued'
+  })
+  // While running with nothing flagged active yet, the first unfinished agent is the one working.
+  if ((status === 'running' || status === 'queued') && !states.includes('active')) {
+    const next = states.findIndex((st) => st === 'queued')
+    if (next >= 0) states[next] = 'active'
+  }
+  const active = ALL_AGENTS[states.indexOf('active')]
+  const labels = ['Idea', ...ALL_AGENTS.map((a) => a.name.replace(/ Agent$/, '').replace(/^System /, ''))]
+  labels.length = Math.min(labels.length, CONSTELLATION_POS.length)
+  const pos = CONSTELLATION_POS.slice(0, labels.length)
+  const nodeState = (i: number): NodeState => (i === 0 ? 'done' : states[i - 1])
+  const edges = pos.slice(1).map((p, i) => {
+    // The last two agents both branch from the one before them.
+    const from = i >= 5 ? pos[4] : pos[i]
+    return { from, to: p, state: nodeState(i + 1) }
+  })
+
+  return (
+    <section aria-label="Agent organization" className="liquid-glass-dark rounded-2xl p-5 space-y-4">
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <span className="flex items-center gap-2.5 text-[15px] font-semibold">
+          <span className={`w-2 h-2 rounded-full ${active ? 'bg-signal signal-pulse' : 'bg-neutral-500'}`} />
+          {active ? `${active.name} is working` : status === 'awaiting_approval' ? 'Paused for your approval' : status === 'complete' ? 'All agents finished' : 'Agents idle'}
+        </span>
+        <span className="font-mono text-xs text-neutral-400 tabular-nums">
+          {states.filter((st) => st === 'done').length} of {ALL_AGENTS.length} agents done
+        </span>
+      </div>
+      <div className="relative h-[260px] rounded-xl border border-white/10 bg-black/40 overflow-hidden">
+        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" className="absolute inset-0">
+          {edges.map((e, i) => (
+            <line
+              key={i}
+              x1={e.from.left} y1={e.from.top} x2={e.to.left} y2={e.to.top}
+              vectorEffect="non-scaling-stroke"
+              strokeWidth={1.5}
+              stroke={e.state === 'active' ? '#c8f26b' : e.state === 'done' || e.state === 'waiting' ? '#737373' : '#262626'}
+              className={e.state === 'active' ? 'signal-flow' : undefined}
+            />
+          ))}
+        </svg>
+        {labels.map((label, i) => {
+          const st = nodeState(i)
+          return (
+            <div
+              key={label + i}
+              className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-lg px-3 py-2 text-[13px] whitespace-nowrap flex items-center gap-2 ${
+                st === 'active' ? 'bg-neutral-900 border-[1.5px] border-signal font-semibold signal-pulse'
+                : st === 'done' ? 'bg-neutral-900 border border-neutral-600 font-medium'
+                : st === 'waiting' ? 'bg-neutral-900 border border-signal/60 font-medium'
+                : st === 'failed' ? 'bg-neutral-900 border border-rose-400 text-rose-200'
+                : 'border border-dashed border-neutral-700 text-neutral-500'
+              }`}
+              style={{ left: `${pos[i].left}%`, top: `${pos[i].top}%` }}
+            >
+              {st === 'done' && i > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+              {st === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-signal" />}
+              {st === 'waiting' && <ShieldAlert className="w-3.5 h-3.5 text-signal" />}
+              {label}
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }

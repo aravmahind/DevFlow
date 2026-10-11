@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { useShallow } from 'zustand/react/shallow'
+import { useProjectStore } from '@/lib/project-store'
 import { useAppUser, useAppAuth } from '@/lib/auth-context'
 import { Menu, Search, LogIn, Sparkles, ListChecks, FolderKanban, Cpu } from 'lucide-react'
 
@@ -16,7 +17,7 @@ export function TopNavbar() {
   const { signIn } = useAppAuth()
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-40 px-5 py-3 bg-white/90 backdrop-blur-md border-b border-slate-200">
+    <nav className="fixed top-3 left-3 right-3 z-40 px-4 py-2.5 rounded-2xl liquid-glass">
       <div className="flex items-center justify-between gap-4">
         {/* Left side */}
         <div className="flex items-center gap-3">
@@ -31,12 +32,10 @@ export function TopNavbar() {
           )}
 
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-7 h-7 bg-blue-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-sm">
-              DF
+            <div className="w-7 h-7 bg-slate-950 rounded-lg flex items-center justify-center shadow-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M4 7h10M4 12h16M4 17h7" /></svg>
             </div>
-            <span className="font-bold text-slate-900 text-base tracking-tight hidden sm:inline">
-              Dev<span className="text-blue-600">flow</span>
-            </span>
+            <span className="font-bold text-slate-950 text-base tracking-tight hidden sm:inline">DevFlow</span>
           </Link>
           
           {isProjectShell && projectTitle && (
@@ -49,12 +48,7 @@ export function TopNavbar() {
           )}
 
           {/* Status Badge */}
-          {isProjectShell && (
-            <div className="hidden md:inline-flex items-center gap-1.5 ml-2 px-2.5 py-0.5 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-medium text-emerald-700">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              AI Pipeline Ready
-            </div>
-          )}
+          {isProjectShell && <RunStatusChip />}
         </div>
 
         {/* Right side */}
@@ -85,7 +79,7 @@ export function TopNavbar() {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-blue-600" />
+              <Sparkles className="w-4 h-4" />
               <span className="hidden sm:inline">Flowmate</span>
             </button>
           )}
@@ -115,5 +109,39 @@ export function TopNavbar() {
         </div>
       </div>
     </nav>
+  )
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  queued: 'Queued',
+  running: 'Agents working',
+  awaiting_approval: 'Waiting for your approval',
+  complete: 'Plan complete',
+  failed: 'Run failed',
+  stopped: 'Stopped',
+}
+
+/** The project's real run state (was a static "AI Pipeline Ready" badge). */
+function RunStatusChip() {
+  const status = useProjectStore((s) => s.status)
+  const progress = useProjectStore((s) => s.progress)
+  const label = STATUS_LABEL[status]
+  if (!label) return null
+  const live = status === 'running' || status === 'queued'
+  const needsYou = status === 'awaiting_approval' || status === 'failed'
+  return (
+    <div
+      className={`hidden md:inline-flex items-center gap-2 ml-2 px-2.5 py-1 rounded-full text-xs font-medium ${
+        live || needsYou ? 'bg-slate-950 text-white' : 'bg-white/70 border border-slate-200 text-slate-700'
+      }`}
+    >
+      <span
+        className={`w-1.5 h-1.5 rounded-full ${
+          live ? 'bg-signal signal-pulse' : needsYou ? 'bg-signal' : status === 'complete' ? 'bg-slate-950' : 'bg-slate-400'
+        }`}
+      />
+      {label}
+      {live && <span className="tabular-nums text-white/70">{progress}%</span>}
+    </div>
   )
 }

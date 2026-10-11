@@ -24,7 +24,7 @@ export function LandingPageContent() {
     <div className="relative min-h-screen bg-background overflow-x-clip">
       {/* Scroll progress bar */}
       <motion.div
-        className="fixed top-0 left-0 right-0 z-[60] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-sky-400 to-violet-500"
+        className="fixed top-0 left-0 right-0 z-[60] h-0.5 origin-left bg-slate-950"
         style={{ scaleX: progress }}
       />
 
@@ -39,7 +39,7 @@ export function LandingPageContent() {
           style={{ animationDelay: '-6s' }}
         />
         <motion.div
-          className="absolute bottom-0 left-0 w-[32rem] h-[32rem] rounded-full bg-fuchsia-500/8 blur-[120px] animate-aurora"
+          className="absolute bottom-0 left-0 w-[32rem] h-[32rem] rounded-full bg-signal/15 blur-[120px] animate-aurora"
           style={{ animationDelay: '-12s' }}
         />
       </div>

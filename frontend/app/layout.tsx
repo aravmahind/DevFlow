@@ -65,7 +65,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geist.variable} ${geistMono.variable} bg-background text-foreground`}>
-      <body className="font-sans antialiased bg-background text-foreground min-h-screen">
+      <body className="font-sans antialiased text-foreground min-h-screen">
         <MaybeClerkProvider>
           <AuthProvider>{children}</AuthProvider>
         </MaybeClerkProvider>

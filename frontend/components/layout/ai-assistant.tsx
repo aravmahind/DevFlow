@@ -149,7 +149,7 @@ export function AiAssistant() {
         {!aiPanelOpen && (
           <button
             onClick={() => setAiPanelOpen(true)}
-            className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 pl-4 pr-5 py-2.5 text-white font-medium shadow-lg hover:shadow-xl transition-all cursor-pointer text-xs"
+            className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full liquid-glass-dark pl-4 pr-5 py-3 font-medium transition-all cursor-pointer text-xs hover:-translate-y-0.5"
           >
             <Sparkles className="w-4 h-4" />
             Flowmate
@@ -161,14 +161,14 @@ export function AiAssistant() {
       <AnimatePresence>
         {aiPanelOpen && (
           <motion.div
-            className="fixed bottom-6 right-6 z-40 flex flex-col w-[min(92vw,400px)] h-[min(76vh,580px)] rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden"
+            className="fixed bottom-6 right-6 z-40 flex flex-col w-[min(92vw,400px)] h-[min(76vh,580px)] rounded-2xl liquid-glass overflow-hidden"
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/60">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center">
                   <Bot className="w-4 h-4" />
@@ -237,7 +237,7 @@ export function AiAssistant() {
             </div>
 
             {/* Suggestions & Input */}
-            <div className="p-3 border-t border-slate-200 bg-slate-50 space-y-2">
+            <div className="p-3 border-t border-slate-200/60 space-y-2">
               <div className="flex gap-1.5 overflow-x-auto scrollbar-hide py-1">
                 {QUICK.map((q, i) => (
                   <button

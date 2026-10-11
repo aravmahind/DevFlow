@@ -90,7 +90,7 @@ export function OrchestrationNode({ data, id }: NodeProps<OrchestrationFlowNode>
             animate={{ opacity: 1 }}
           >
             <motion.div
-              className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+              className="h-full bg-slate-950"
               animate={{ width: `${data.progress}%` }}
               transition={{ duration: 0.3 }}
             />

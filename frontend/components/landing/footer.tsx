@@ -24,7 +24,6 @@ const LINK_COLUMNS: { heading: string; links: { label: string; href: string }[] 
   {
     heading: 'Engineering',
     links: [
-      { label: 'Architecture Specs', href: '/architecture' },
       { label: 'My Projects', href: '/my-projects' },
       { label: 'My Tasks', href: '/my-tasks' },
     ],

@@ -61,8 +61,8 @@ export function HeroPreview() {
                   key={a.label}
                   className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-white py-2 shadow-xs"
                   animate={{
-                    borderColor: ['#e2e8f0', '#3b82f6', '#1d4ed8', '#e2e8f0'],
-                    backgroundColor: ['#ffffff', '#eff6ff', '#eff6ff', '#ffffff'],
+                    borderColor: ['#e5e5e5', '#0a0a0a', '#0a0a0a', '#e5e5e5'],
+                    backgroundColor: ['#ffffff', '#f5f5f5', '#f5f5f5', '#ffffff'],
                   }}
                   transition={{ duration: CYCLE, times: [start, start + 0.08, start + 0.18, 1], repeat: Infinity, ease: 'easeInOut' }}
                 >
