@@ -427,6 +427,9 @@ class RiskItem(BaseModel):
                 valid_sev = {"critical", "high", "medium", "low"}
                 if sev not in valid_sev:
                     data["severity"] = "medium"
+            cost = data.get("cost_of_delay_per_week")
+            if cost is not None and not isinstance(cost, str):
+                data["cost_of_delay_per_week"] = f"${cost:,}" if isinstance(cost, (int, float)) and not isinstance(cost, bool) else str(cost)
         return data
 
 

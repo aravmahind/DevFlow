@@ -17,7 +17,7 @@ SYSTEM_PROMPT = (
     "or API endpoints relevant to that layer).\n\n"
     "Provide overall technology recommendations, a concrete scalability plan, and integration points. "
     "Provide data_flows: 5-10 directed edges showing how requests and data move between components, "
-    "each {\"source\", \"target\", \"label\"} where source and target are component names copied exactly "
+    "each {{\"source\", \"target\", \"label\"}} where source and target are component names copied exactly "
     "from the layers' components lists and label is what flows (e.g. 'REST/JSON', 'SQL queries', 'events'). "
     "Favor proven, modern, well-supported technologies. Keep choices internally consistent across layers. "
     "Commit to ONE specific technology per concern — pick a single frontend framework, a single primary database, etc. "
