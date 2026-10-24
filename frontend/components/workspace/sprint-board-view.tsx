@@ -141,6 +141,9 @@ export function SprintBoardView() {
   const projectRole = useProjectRole()
   const [assigning, setAssigning] = useState(false)
   const [assignNote, setAssignNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [draggedTaskIndex, setDraggedTaskIndex] = useState<number | null>(null)
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   
   useEffect(() => {
     if (project?.id) getProjectMembers(project.id).then(res => { setUsers(res.members || []) }).catch(console.error)
@@ -177,17 +180,24 @@ export function SprintBoardView() {
 
   const updateTask = async (taskIndex: number, updates: Partial<any>) => {
     if (!project) return
-    const newTasks = tasks.map((t: any,index:number) => index === taskIndex ? { ...t, ...updates } : t)
+    const currentTask = tasks[taskIndex]
+    if (!currentTask) return
+    // Prevent redundant requests if already in that status
+    if (updates.status && currentTask.status === updates.status) return
+
+    setUpdateError(null)
+    const newTasks = tasks.map((t: any, index: number) => index === taskIndex ? { ...t, ...updates } : t)
     const newBacklog = { ...backlog, tasks: newTasks }
     
     // Optimistic UI update
     setProject({ ...project, backlog: newBacklog })
     
     try {
-      const result=await updateProjectTask(project.id,taskIndex,{...updates,expected_revision:project.revision||0})
-      if(result.project)setProject(result.project)
+      const result = await updateProjectTask(project.id, taskIndex, updates)
+      if (result.project) setProject(result.project)
     } catch (err) {
       console.error("Failed to update task", err)
+      setUpdateError(err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : 'Failed to move task')
       // Rollback
       setProject({ ...project, backlog })
     }
@@ -215,8 +225,12 @@ export function SprintBoardView() {
 
   const handleDrop = (e: React.DragEvent, status: string) => {
     e.preventDefault()
-    const taskIndex = Number(e.dataTransfer.getData('text/plain'))
-    if (Number.isInteger(taskIndex)) {
+    setDragOverCol(null)
+    setDraggedTaskIndex(null)
+    const raw = e.dataTransfer.getData('text/plain')
+    if (raw === '' || raw === null || raw === undefined) return
+    const taskIndex = Number(raw)
+    if (Number.isInteger(taskIndex) && taskIndex >= 0 && taskIndex < tasks.length) {
       updateTask(taskIndex, { status })
     }
   }
@@ -224,12 +238,23 @@ export function SprintBoardView() {
   const renderTaskCard = (task: any, idx: number) => {
     const deps = task.dependencies?.length || 0
     const isAssignedToMe = task.assignee_id === user?.id
+    const isBeingDragged = draggedTaskIndex === task._index
     return (
       <div
-        key={`${task.title}-${idx}`}
+        key={`${task.title}-${task._index ?? idx}`}
         draggable
-        onDragStart={(e: any) => e.dataTransfer.setData('text/plain', String(task._index))}
+        onDragStart={(e: any) => {
+          e.dataTransfer.setData('text/plain', String(task._index))
+          e.dataTransfer.effectAllowed = 'move'
+          setDraggedTaskIndex(task._index)
+        }}
+        onDragEnd={() => {
+          setDraggedTaskIndex(null)
+          setDragOverCol(null)
+        }}
         className={`p-3.5 bg-white border rounded-xl hover:shadow-sm transition-all cursor-grab active:cursor-grabbing shadow-xs ${
+          isBeingDragged ? 'opacity-40 scale-[0.98] border-blue-400 border-dashed bg-blue-50/20' : ''
+        } ${
           isAssignedToMe ? 'border-blue-300 ring-1 ring-blue-100' : 'border-slate-200 hover:border-slate-300'
         }`}
       >
@@ -288,6 +313,14 @@ export function SprintBoardView() {
             {sprints.length} sprints · {normalizedTasks.length} tasks{myTasksOnly ? ' (my tasks)' : ''} · drag cards to update status
           </p>
           {assignNote && <p className={`text-xs mt-1 ${assignNote.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{assignNote.text}</p>}
+          {updateError && (
+            <div className="mt-2 px-3 py-1.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center justify-between gap-3 shadow-xs">
+              <span>{updateError}</span>
+              <button onClick={() => setUpdateError(null)} className="font-semibold text-rose-600 hover:text-rose-800 cursor-pointer">
+                ✕
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {projectRole === 'manager' && (
@@ -337,11 +370,25 @@ export function SprintBoardView() {
         <div className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[500px]">
           {KANBAN_COLUMNS.map((colName) => {
             const colTasks = normalizedTasks.filter((t: any) => t.status === colName)
+            const isTargetCol = dragOverCol === colName
             return (
               <div
                 key={colName}
-                className="bg-slate-100/70 border border-slate-200 p-4 rounded-2xl flex-shrink-0 w-[290px] flex flex-col h-full min-h-[420px]"
-                onDragOver={(e) => e.preventDefault()}
+                className={`border p-4 rounded-2xl flex-shrink-0 w-[290px] flex flex-col h-full min-h-[420px] transition-all ${
+                  isTargetCol
+                    ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-400/30'
+                    : 'bg-slate-100/70 border-slate-200'
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (dragOverCol !== colName) setDragOverCol(colName)
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverCol === colName) setDragOverCol(null)
+                  }
+                }}
                 onDrop={(e) => handleDrop(e, colName)}
               >
                 <div className="mb-3 flex items-center justify-between">
@@ -350,10 +397,21 @@ export function SprintBoardView() {
                     {colTasks.length}
                   </span>
                 </div>
-                <div className="space-y-3 flex-1">
+                <div
+                  className="space-y-3 flex-1 min-h-[140px]"
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={(e) => handleDrop(e, colName)}
+                >
                   {colTasks.map((task: any, idx: number) => renderTaskCard(task, idx))}
                   {colTasks.length === 0 && (
-                    <div className="border border-dashed border-slate-300 rounded-xl p-4 text-center text-xs text-slate-400">
+                    <div
+                      className={`border border-dashed rounded-xl p-5 text-center text-xs transition-colors ${
+                        isTargetCol ? 'border-blue-400 text-blue-600 bg-blue-100/40 font-medium' : 'border-slate-300 text-slate-400'
+                      }`}
+                    >
                       Drop tasks here
                     </div>
                   )}

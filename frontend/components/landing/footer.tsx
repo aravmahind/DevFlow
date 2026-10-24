@@ -17,7 +17,6 @@ const LINK_COLUMNS: { heading: string; links: { label: string; href: string }[] 
     links: [
       { label: 'How It Works', href: '#how' },
       { label: 'Features', href: '#features' },
-      { label: 'Pricing', href: '#pricing' },
       { label: 'Migration Wizard', href: '#migrate' },
     ],
   },

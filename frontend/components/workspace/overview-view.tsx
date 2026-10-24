@@ -10,6 +10,7 @@ import {
   Target, Clock, Users, Sparkles, CheckCircle2,
   DollarSign, ShieldAlert, Flag, TrendingUp, Loader2,
 } from 'lucide-react'
+import { RunControls, AgentWorkingBadge } from './run-controls'
 
 export function OverviewView() {
   const project = useProjectStore((s) => s.project)
@@ -190,8 +191,15 @@ function PipelineTrack() {
   })
   const caption: Record<string, string> = { done: 'done', waiting: 'waiting on you', running: 'running', failed: 'failed', queued: 'queued' }
   return (
-    <section aria-label="Pipeline" className="space-y-2.5">
-      <div className="grid grid-cols-6 gap-1.5">
+    <section aria-label="Pipeline" className="space-y-3 bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-100">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-800">Agent Pipeline</span>
+          <AgentWorkingBadge />
+        </div>
+        <RunControls />
+      </div>
+      <div className="grid grid-cols-6 gap-1.5 pt-1">
         {states.map((st, i) => (
           <span
             key={PHASES[i].node}

@@ -11,7 +11,6 @@ import { InputSection } from './input-section'
 import { FeaturesSection } from './features-section'
 import { MigrationSection } from './migration-section'
 import { SocialProof } from './social-proof'
-import { PricingSection } from './pricing-section'
 import { FaqSection } from './faq-section'
 import { FinalCta } from './final-cta'
 import { LandingFooter } from './footer'
@@ -56,7 +55,6 @@ export function LandingPageContent() {
           <FeaturesSection />
           <MigrationSection />
           <SocialProof />
-          <PricingSection />
           <FaqSection />
           <FinalCta />
         </main>

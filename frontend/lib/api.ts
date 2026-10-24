@@ -106,9 +106,18 @@ export async function runProject(projectId: string): Promise<{ project_id: strin
   return jsonOrThrow(res)
 }
 
-/** Stop the running workflow; finished sections are kept (managers only). */
+/** Stop the running workflow; finished sections are kept. */
 export async function stopProject(projectId: string): Promise<{ project_id: string; status: string }> {
   const res = await fetch(endpoint.projectAction(projectId, 'stop'), {
+    method: 'POST',
+    headers: await authHeaders(true),
+  })
+  return jsonOrThrow(res)
+}
+
+/** Pause the running workflow; finished sections are kept and resume continues. */
+export async function pauseProject(projectId: string): Promise<{ project_id: string; status: string }> {
+  const res = await fetch(endpoint.projectAction(projectId, 'pause'), {
     method: 'POST',
     headers: await authHeaders(true),
   })

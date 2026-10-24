@@ -10,7 +10,6 @@ const NAV_LINKS = [
   { label: 'How It Works', href: '#how' },
   { label: 'Platform Features', href: '#features' },
   { label: 'Migration', href: '#migrate' },
-  { label: 'Pricing', href: '#pricing' },
   { label: 'FAQ', href: '#faq' },
 ]
 

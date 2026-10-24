@@ -8,6 +8,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/lib/project-store'
 import { useAppUser, useAppAuth } from '@/lib/auth-context'
 import { Menu, Search, LogIn, Sparkles, ListChecks, FolderKanban, Cpu } from 'lucide-react'
+import { RunControls } from '@/components/workspace/run-controls'
 
 export function TopNavbar() {
   const pathname = usePathname()
@@ -47,8 +48,12 @@ export function TopNavbar() {
             </>
           )}
 
-          {/* Status Badge */}
-          {isProjectShell && <RunStatusChip />}
+          {/* Status Badge & Pipeline Controls */}
+          {isProjectShell && (
+            <div className="hidden md:flex items-center gap-2">
+              <RunControls showBadge compact />
+            </div>
+          )}
         </div>
 
         {/* Right side */}

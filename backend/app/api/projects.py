@@ -101,11 +101,20 @@ async def run_project(project_id: str, user: CurrentUser = Depends(current_user)
 
 @router.post("/{project_id}/stop", response_model=AnalyzeResponse, status_code=202)
 async def stop_project(project_id: str, user: CurrentUser = Depends(current_user)) -> AnalyzeResponse:
-    """Stop the running workflow (manager only). Completed sections are kept."""
+    """Stop the running workflow. Completed sections are kept."""
     await _require_run_permission(project_id, user)
-    if not await stop_run(project_id):
+    if not await stop_run(project_id, new_status="stopped"):
         raise HTTPException(status_code=409, detail="nothing is running for this project")
     return AnalyzeResponse(project_id=project_id, status="stopped")
+
+
+@router.post("/{project_id}/pause", response_model=AnalyzeResponse, status_code=202)
+async def pause_project(project_id: str, user: CurrentUser = Depends(current_user)) -> AnalyzeResponse:
+    """Pause the running workflow. Completed sections are kept, and Start/Resume continues."""
+    await _require_run_permission(project_id, user)
+    if not await stop_run(project_id, new_status="paused"):
+        raise HTTPException(status_code=409, detail="nothing is running to pause")
+    return AnalyzeResponse(project_id=project_id, status="paused")
 
 
 async def _require_run_permission(project_id: str, user: CurrentUser) -> None:
@@ -113,8 +122,8 @@ async def _require_run_permission(project_id: str, user: CurrentUser) -> None:
     role = await project_service.project_role(project_id, user.id)
     if role is None:
         raise HTTPException(status_code=404, detail="project not found")
-    if not rbac.check_permission(role, "run_analysis"):
-        raise HTTPException(status_code=403, detail="only project managers can run or stop the workflow")
+    if not (rbac.check_permission(role, "run_analysis") or rbac.check_permission(role, "edit_content")):
+        raise HTTPException(status_code=403, detail="permission required to control the workflow")
 
 
 class ApproveRequest(BaseModel):
@@ -309,11 +318,29 @@ async def update_task(project_id:str,task_index:int,req:TaskUpdateRequest,user:C
         if req.assignee_id and req.assignee_id not in {m["user_id"] for m in members}: raise HTTPException(422,"assignee is not a project member")
         task["assignee_id"]=req.assignee_id or None
     if req.status is not None:
-        if not rbac.check_permission(role, "update_own_task"): raise HTTPException(403,"only the assignee may update this task")
-        if not rbac.check_permission(role, "assign_tasks") and task.get("assignee_id")!=user.id: raise HTTPException(403,"only the assignee may update this task")
-        task["status"]=req.status
-    updated=await project_service.edit_content(project_id,user.id,f"/backlog/tasks/{task_index}",task,req.expected_revision,operation="task_update")
-    return {"project":updated,"task":task}
+        has_edit = rbac.check_permission(role, "edit_content")
+        has_assign = rbac.check_permission(role, "assign_tasks")
+        has_update_own = rbac.check_permission(role, "update_own_task")
+        if not (has_edit or has_assign or has_update_own):
+            raise HTTPException(403, "permission required to update task")
+        if not (has_edit or has_assign):
+            if task.get("assignee_id") and task.get("assignee_id") != user.id:
+                raise HTTPException(403, "only the assignee may update this task")
+        task["status"] = req.status
+    try:
+        updated = await project_service.edit_content(
+            project_id, user.id, f"/backlog/tasks/{task_index}", task,
+            expected_revision=req.expected_revision,
+            operation="task_update"
+        )
+    except RuntimeError:
+        # Concurrent revision conflict - retry without strict expected_revision to preserve task move
+        updated = await project_service.edit_content(
+            project_id, user.id, f"/backlog/tasks/{task_index}", task,
+            expected_revision=None,
+            operation="task_update"
+        )
+    return {"project": updated, "task": task}
 
 
 class AutoAssignRequest(BaseModel):

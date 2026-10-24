@@ -99,6 +99,8 @@ export interface TaskItem {
   priority: 'high' | 'medium' | 'low'
   sprint: number
   dependencies: string[]
+  status?: string
+  assignee_id?: string | null
 }
 export interface Epic {
   title: string
@@ -191,7 +193,7 @@ export interface ProjectDoc {
   id: string
   title: string
   idea: string
-  status: 'queued' | 'running' | 'awaiting_approval' | 'complete' | 'failed' | 'stopped'
+  status: 'queued' | 'running' | 'awaiting_approval' | 'complete' | 'failed' | 'stopped' | 'paused' | 'idle'
   progress: number
   error: string | null
   created_at: string

@@ -320,13 +320,15 @@ async def stop_workers() -> None:
     _workers.clear()
 
 
-async def stop_run(project_id: str) -> bool:
-    """Stop a queued or running workflow. Finished agents' work is kept, and
+async def stop_run(project_id: str, new_status: str = "stopped") -> bool:
+    """Stop or pause a queued or running workflow. Finished agents' work is kept, and
     Run resumes from the checkpoint. Returns False if nothing was running."""
-    cancelled = await orchestration_store.cancel_active(project_id, "Stopped by a manager")
-    if not cancelled:
+    cancelled = await orchestration_store.cancel_active(project_id, f"{new_status.capitalize()} by user")
+    doc = await project_service.get_project(project_id, "system")
+    curr_status = doc.get("status") if doc else None
+    if not cancelled and curr_status not in ("running", "queued"):
         return False
     await project_service.settle_active_nodes(project_id, "idle")
-    await project_service.set_status(project_id, "stopped", error=None)
-    logger.info("Run %s stopped", project_id)
+    await project_service.set_status(project_id, new_status, error=None)
+    logger.info("Run %s %s (cancelled_jobs=%d)", project_id, new_status, cancelled)
     return True
