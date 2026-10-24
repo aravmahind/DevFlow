@@ -143,21 +143,32 @@ def _translate(event: Any) -> list[str]:
     if not (isinstance(event, tuple) and len(event) == 2 and isinstance(event[0], str)):
         return []
     mode, payload = event
-    if mode == "debug" and payload.get("type") == "task:runs":
-        node_name = payload.get("payload", {}).get("name")
-        if node_name and not node_name.startswith("__"):
-            return [_line({
+    lines = []
+    if mode == "debug":
+        etype = str(payload.get("type", ""))
+        name = payload.get("name") or payload.get("payload", {}).get("name")
+        if name and not str(name).startswith("__") and etype in ("task:runs", "task", "task:step", "run"):
+            label = str(name).replace("_", " ").title()
+            lines.append(_line({
                 "type": "log",
-                "agent": node_name,
+                "agent": str(name),
                 "level": "info",
-                "message": f"Starting {node_name} processing...",
+                "message": f"Specialist Agent [{label}] started analysis...",
                 "ts": datetime.now(timezone.utc).isoformat(),
-            })]
+            }))
     elif mode == "updates":
         # payload maps node_name -> state_update
-        return [_line({"type": "node_update", "node": node, "state": update})
-                for node, update in payload.items()]
-    return []
+        for node, update in payload.items():
+            lines.append(_line({"type": "node_update", "node": node, "state": update}))
+            label = str(node).replace("_", " ").title()
+            lines.append(_line({
+                "type": "log",
+                "agent": str(node),
+                "level": "info",
+                "message": f"Specialist Agent [{label}] finalized section deliverables ✓",
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }))
+    return lines
 
 
 async def _run_graph(compiled: Any, inputs: Any, config: dict[str, Any]):
@@ -167,6 +178,15 @@ async def _run_graph(compiled: Any, inputs: Any, config: dict[str, Any]):
     cancelled with it, so a retried run never races an abandoned one.
     """
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+    # Emit initial pipeline kickoff log immediately
+    yield _line({
+        "type": "log",
+        "agent": "ceo",
+        "level": "info",
+        "message": "CEO Supervision: Multi-agent orchestration pipeline initiated",
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
 
     async def pump() -> None:
         try:

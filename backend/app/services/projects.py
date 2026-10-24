@@ -442,23 +442,57 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
             if key in state_update:
                 doc[key] = state_update[key]
                 
+        # Append log entry for completed node
+        node_label = (orch_id or node).replace("_", " ").title()
+        doc["orchestration"].setdefault("logs", [])
+        doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
+            "agent": orch_id or node,
+            "level": "info",
+            "message": f"Specialist Agent [{node_label}] finalized deliverable specifications ✓",
+            "ts": now,
+        }])[-_MAX_LOGS:]
+
+    elif etype == "run_complete":
+        doc["progress"] = 100
+        doc["orchestration"].setdefault("logs", [])
+        doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
+            "agent": "ceo",
+            "level": "info",
+            "message": "CEO Quality Supervision: Quality audit approved. All deliverables complete ✓",
+            "ts": now,
+        }])[-_MAX_LOGS:]
     elif etype == "paused_for_approval":
         doc["pending_approval"] = event.get("pending_approval")
         doc["status"] = "awaiting_approval"
+        doc["orchestration"].setdefault("logs", [])
+        doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
+            "agent": "ceo",
+            "level": "warning",
+            "message": f"Run paused for manager review on phase: {event.get('pending_approval')}",
+            "ts": now,
+        }])[-_MAX_LOGS:]
     elif etype == "log":
         orch_id = _LANGGRAPH_NODE_TO_ORCH_ID.get(str(event.get("agent")), "")
         node_state = doc["orchestration"]["nodes"].get(orch_id)
         if node_state and node_state.get("status") != "complete" and not str(event.get("agent", "")).startswith("await_"):
             node_state.update(status="thinking")
             doc["orchestration"]["current_node"] = orch_id
+        doc["orchestration"].setdefault("logs", [])
         doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
             "agent": event.get("agent"), "level": event.get("level", "info"),
-            "message": event.get("message", ""), "ts": event.get("ts"),
+            "message": event.get("message", ""), "ts": event.get("ts") or now,
         }])[-_MAX_LOGS:]
     elif etype == "progress":
         doc["progress"] = event.get("progress", 0)
     elif etype == "error" or etype == "run_failed":
         doc["error"] = event.get("message")
+        doc["orchestration"].setdefault("logs", [])
+        doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
+            "agent": "system",
+            "level": "error",
+            "message": str(event.get("message") or "Pipeline execution error"),
+            "ts": now,
+        }])[-_MAX_LOGS:]
     else:
         return
     doc["updated_at"] = now

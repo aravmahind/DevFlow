@@ -113,7 +113,20 @@ def new_project_doc(idea: str, title: Optional[str] = None, manager_inputs: Opti
                 nid: {"status": "idle", "progress": 0, "label": NODE_LABELS[nid]}
                 for nid in NODE_IDS
             },
-            "logs": [],
+            "logs": [
+                {
+                    "agent": "system",
+                    "level": "info",
+                    "message": f"Orchestration pipeline initialized for: {title or 'New Project'}",
+                    "ts": now,
+                },
+                {
+                    "agent": "ceo",
+                    "level": "info",
+                    "message": "CEO Supervision ready. Specialist agents awaiting pipeline start.",
+                    "ts": now,
+                },
+            ],
         },
         # Human-in-the-loop and iteration state
         "approvals": {},

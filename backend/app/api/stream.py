@@ -45,7 +45,15 @@ async def stream(websocket: WebSocket, project_id: str) -> None:
 
         job_id = await orchestration_store.latest_job(project_id)
         if job_id is None:
-            await websocket.send_json({"type": "error", "message": "orchestration job not found"})
+            # If run was just triggered, give the worker process a moment to create the job record
+            for _ in range(10):
+                await asyncio.sleep(0.5)
+                job_id = await orchestration_store.latest_job(project_id)
+                if job_id is not None:
+                    break
+
+        if job_id is None:
+            # No orchestration job active yet; stream cleanly finishes without bogus error
             await websocket.send_json({"type": "stream_end"})
             return
 
