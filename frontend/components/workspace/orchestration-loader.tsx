@@ -25,6 +25,8 @@ import {
   ChevronRight,
   RotateCw,
   Square,
+  Pause,
+  Bot,
 } from 'lucide-react'
 
 interface AgentStage {
@@ -125,6 +127,25 @@ const ORCHESTRATION_STAGES: { title: string; description: string; agents: AgentS
 ]
 
 const ALL_AGENTS = ORCHESTRATION_STAGES.flatMap((s) => s.agents)
+
+const APPROVAL_INFO: Record<string, { title: string; subtitle: string }> = {
+  requirements: {
+    title: 'Requirements Analysis',
+    subtitle: 'The Requirements Agent has drafted product scope, user stories, and acceptance criteria.',
+  },
+  architecture: {
+    title: 'System Architecture',
+    subtitle: 'The System Architect has designed the component hierarchy, data models, and API specs.',
+  },
+  sprint_planning: {
+    title: 'Sprint Planning',
+    subtitle: 'The Sprint Planner has organized the delivery milestones, backlog tasks, and estimates.',
+  },
+  sprint_review: {
+    title: 'Sprint Review & Quality Audit',
+    subtitle: 'Execution monitoring, risk auditing, and deployment strategies have been prepared.',
+  },
+}
 
 export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
   const nodes = useProjectStore((s) => s.nodes)
@@ -250,7 +271,12 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              {status === 'stopped' ? (
+              {status === 'complete' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Agents Finished
+                </span>
+              ) : status === 'stopped' ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
                   <Square className="w-3 h-3 fill-current text-slate-500" />
                   Stopped
@@ -269,6 +295,16 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
                   <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
                   Waiting for Approval
+                </span>
+              ) : status === 'paused' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
+                  <Pause className="w-3.5 h-3.5 text-amber-600" />
+                  Pipeline Paused
+                </span>
+              ) : status === 'idle' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                  <Bot className="w-3.5 h-3.5 text-slate-500" />
+                  Agents Idle
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
@@ -296,7 +332,9 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
               {project?.title || 'Compiling Project Specification & Delivery Plan'}
             </h1>
             <p className="text-slate-500 text-sm mt-1 max-w-2xl">
-              Specialist agents are evaluating requirements, designing system architecture, and building delivery roadmaps.
+              {status === 'complete'
+                ? 'All specialist agents have completed delivery plan specifications, system architecture, and risk analysis.'
+                : 'Specialist agents are evaluating requirements, designing system architecture, and building delivery roadmaps.'}
             </p>
           </div>
 
@@ -329,7 +367,7 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
         <div className="mt-5">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500 mb-2">
             <span>Pipeline Status</span>
-            <span>{completedCount === ALL_AGENTS.length ? 'Finalizing Quality Review' : `${completedCount} of ${ALL_AGENTS.length} Deliverables Generated`}</span>
+            <span>{status === 'complete' ? 'All Deliverables Generated & Verified' : completedCount === ALL_AGENTS.length ? 'Finalizing Quality Review' : `${completedCount} of ${ALL_AGENTS.length} Deliverables Generated`}</span>
           </div>
           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
             <motion.div
@@ -344,70 +382,82 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
 
       <AgentConstellation />
 
-      {project?.status === 'awaiting_approval' && project?.pending_approval && (
-        <div className="liquid-glass-dark rounded-2xl p-6">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-signal signal-pulse" />
-            <h2 className="text-lg font-semibold tracking-tight">Your approval is needed</h2>
-          </div>
-          <p className="text-neutral-400 text-sm mb-5">
-            The run is paused after <strong className="text-white">{project.pending_approval.replace(/_/g, ' ')}</strong>. Approve to continue, or write feedback and send it back for a revision.
-          </p>
-          <div className="flex flex-col gap-3">
-            <textarea
-              id="feedback-input"
-              className="w-full rounded-lg p-3 text-sm bg-white/5 border border-white/15 text-white placeholder:text-neutral-500 focus:outline-none focus:border-signal"
-              rows={3}
-              placeholder="Optional: Provide feedback for revision if rejecting..."
-            />
-            <div className="flex gap-3 mt-2">
-              <button
-                className="inline-flex items-center gap-2 px-5 min-h-11 bg-signal text-slate-950 rounded-full text-sm font-semibold disabled:opacity-60 cursor-pointer"
-                disabled={isApproving}
-                onClick={async () => {
-                  if (isApproving) return
-                  const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
-                  setIsApproving(true)
-                  try {
-                    await approveProject(project.id, project.pending_approval!, true, fb)
-                    setProject(await getProject(project.id))
-                  } catch (err) {
-                    console.error('Failed to approve:', err)
-                    alert('Failed to approve project.')
-                  } finally {
-                    setIsApproving(false)
-                  }
-                }}
-              >
-                {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Approve & continue
-              </button>
-              <button
-                className="inline-flex items-center gap-2 px-5 min-h-11 text-white border border-white/20 rounded-full text-sm font-semibold hover:bg-white/10 disabled:opacity-60 cursor-pointer"
-                disabled={isApproving}
-                onClick={async () => {
-                  if (isApproving) return
-                  const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
-                  if (!fb) { alert('Please provide feedback for revision'); return; }
-                  setIsApproving(true)
-                  try {
-                    await approveProject(project.id, project.pending_approval!, false, fb)
-                    setProject(await getProject(project.id))
-                  } catch (err) {
-                    console.error('Failed to reject:', err)
-                    alert('Failed to reject project.')
-                  } finally {
-                    setIsApproving(false)
-                  }
-                }}
-              >
-                {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Send back with feedback
-              </button>
+      {project?.status === 'awaiting_approval' && project?.pending_approval && (() => {
+        const info = APPROVAL_INFO[project.pending_approval] || {
+          title: project.pending_approval.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          subtitle: 'The autonomous agents have paused for human review before proceeding.',
+        }
+        return (
+          <div className="liquid-glass-dark rounded-2xl p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-signal signal-pulse" />
+              <h2 className="text-lg font-semibold tracking-tight">Your approval is needed</h2>
+            </div>
+            <p className="text-xs uppercase tracking-wider text-signal font-mono font-medium mb-1">
+              Phase Review: {info.title}
+            </p>
+            <p className="text-neutral-300 text-sm mb-1">
+              {info.subtitle}
+            </p>
+            <p className="text-neutral-400 text-xs mb-5">
+              Approve to continue to the next phase, or provide feedback and send it back for a revision.
+            </p>
+            <div className="flex flex-col gap-3">
+              <textarea
+                id="feedback-input"
+                className="w-full rounded-lg p-3 text-sm bg-white/5 border border-white/15 text-white placeholder:text-neutral-500 focus:outline-none focus:border-signal"
+                rows={3}
+                placeholder="Optional: Provide feedback for revision if requesting changes..."
+              />
+              <div className="flex gap-3 mt-2">
+                <button
+                  className="inline-flex items-center gap-2 px-5 min-h-11 bg-signal text-slate-950 rounded-full text-sm font-semibold disabled:opacity-60 cursor-pointer hover:brightness-105 transition-all"
+                  disabled={isApproving}
+                  onClick={async () => {
+                    if (isApproving) return
+                    const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
+                    setIsApproving(true)
+                    try {
+                      await approveProject(project.id, project.pending_approval!, true, fb)
+                      setProject(await getProject(project.id))
+                    } catch (err) {
+                      console.error('Failed to approve:', err)
+                      alert('Failed to approve project.')
+                    } finally {
+                      setIsApproving(false)
+                    }
+                  }}
+                >
+                  {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Approve & continue
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 px-5 min-h-11 text-white border border-white/20 rounded-full text-sm font-semibold hover:bg-white/10 disabled:opacity-60 cursor-pointer transition-colors"
+                  disabled={isApproving}
+                  onClick={async () => {
+                    if (isApproving) return
+                    const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
+                    if (!fb) { alert('Please provide feedback for revision'); return; }
+                    setIsApproving(true)
+                    try {
+                      await approveProject(project.id, project.pending_approval!, false, fb)
+                      setProject(await getProject(project.id))
+                    } catch (err) {
+                      console.error('Failed to reject:', err)
+                      alert('Failed to reject project.')
+                    } finally {
+                      setIsApproving(false)
+                    }
+                  }}
+                >
+                  {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Send back with feedback
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Main Content Grid: Orchestration Phases + Real-time Activity Log */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
@@ -653,7 +703,11 @@ function AgentConstellation() {
   const states: NodeState[] = ALL_AGENTS.map((a) => {
     const st = nodes[a.nodeId]?.status
     if (st === 'failed') return 'failed'
-    if (status === 'awaiting_approval' && project?.pending_approval === a.nodeId) return 'waiting'
+    const isWaiting = status === 'awaiting_approval' && (
+      project?.pending_approval === a.nodeId ||
+      (project?.pending_approval === 'sprint_review' && (a.nodeId === 'execution' || a.nodeId === 'deployment'))
+    )
+    if (isWaiting) return 'waiting'
     if (st === 'complete' || projectAny?.[a.deliverableKey]) return 'done'
     if (st === 'thinking' || st === 'analyzing' || st === 'generating') return 'active'
     return 'queued'

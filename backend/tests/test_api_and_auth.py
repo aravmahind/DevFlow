@@ -497,3 +497,26 @@ def test_delete_project_forbidden():
         res = client.delete("/projects/abc123", headers={"Authorization": "Bearer fake_token"})
         assert res.status_code == 403
         assert "Only managers can delete" in res.json()["detail"]
+
+
+def test_extract_document_text_success(client):
+    """API-019: POST /projects/extract-document with text file returns parsed content and metadata."""
+    content = b"This is a comprehensive PRD and specifications document for DevFlow context."
+    files = {"file": ("requirements.txt", content, "text/plain")}
+    res = client.post("/projects/extract-document", files=files)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["filename"] == "requirements.txt"
+    assert data["title"] == "Requirements"
+    assert "comprehensive PRD" in data["content"]
+    assert data["word_count"] > 5
+    assert data["char_count"] == len(content)
+
+
+def test_extract_document_too_short(client):
+    """API-020: POST /projects/extract-document with too short content returns 400."""
+    files = {"file": ("short.txt", b"too short", "text/plain")}
+    res = client.post("/projects/extract-document", files=files)
+    assert res.status_code == 400
+    assert "too short" in res.json()["detail"].lower()
+

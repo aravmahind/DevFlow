@@ -478,6 +478,8 @@ async def apply_event(project_id: str, event: dict[str, Any]) -> None:
 
     elif etype == "run_complete":
         doc["progress"] = 100
+        doc["status"] = "complete"
+        doc["pending_approval"] = None
         doc["orchestration"].setdefault("logs", [])
         doc["orchestration"]["logs"] = (doc["orchestration"]["logs"] + [{
             "agent": "ceo",

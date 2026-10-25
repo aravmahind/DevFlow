@@ -76,6 +76,7 @@ async def run_requirement_agent(state: ProjectState) -> dict[str, Any]:
         "requirements": data,
         "current_phase": "requirements",
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 
@@ -107,6 +108,7 @@ async def run_architect_agent(state: ProjectState) -> dict[str, Any]:
         "architecture": data,
         "current_phase": "architecture",
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 
@@ -137,6 +139,7 @@ async def run_sprint_planner_agent(state: ProjectState) -> dict[str, Any]:
         "backlog": data,
         "current_phase": "sprint_planning",
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 
@@ -166,6 +169,7 @@ async def run_github_monitor(state: ProjectState) -> dict[str, Any]:
                 "github_progress": tracked,
                 "current_phase": "execution",
                 "workflow_status": "running",
+                "pending_approval": None,
             }
         ctx["github_data"] = snapshot
 
@@ -174,6 +178,7 @@ async def run_github_monitor(state: ProjectState) -> dict[str, Any]:
         "github_progress": data,
         "current_phase": "execution",
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 
@@ -196,6 +201,7 @@ async def run_risk_agent(state: ProjectState) -> dict[str, Any]:
     return {
         "risks": data,
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 
@@ -217,6 +223,7 @@ async def run_deployment_advisor(state: ProjectState) -> dict[str, Any]:
     return {
         "deployment_recommendations": data,
         "workflow_status": "running",
+        "pending_approval": None,
     }
 
 

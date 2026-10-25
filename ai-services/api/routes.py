@@ -219,7 +219,12 @@ async def _outcome(compiled: Any, config: dict[str, Any]) -> str:
     state = await compiled.aget_state(config)
     if state.next:
         next_node = state.next[0]
-        pending = state.values.get("pending_approval") or _PHASE_FOR_GATE.get(next_node)
+        pending = _PHASE_FOR_GATE.get(next_node) or state.values.get("pending_approval")
+        if pending and state.values.get("pending_approval") != pending:
+            try:
+                await compiled.aupdate_state(config, {"pending_approval": pending})
+            except Exception:
+                pass
         return _line({"type": "paused_for_approval", "pending_approval": pending})
     return _line({"type": "run_complete"})
 
@@ -268,23 +273,36 @@ async def approve_workflow(req: ApprovalRequest) -> StreamingResponse:
             compiled = await get_compiled_graph()
             config = {"configurable": {"thread_id": req.project_id}}
             state = await compiled.aget_state(config)
-            gate = _GATE_FOR_PHASE.get(req.phase)
-            if gate is None:
-                yield _line({"type": "error", "retryable": False,
-                             "message": f"Unknown approval phase '{req.phase}'"})
-                return
             if not state.values:
                 yield _line({"type": "error", "retryable": False,
                              "message": "No saved workflow state for this project; use Retry to rerun it"})
                 return
 
-            applied = state.values.get("approvals", {}).get(req.phase, {})
+            current_gate = state.next[0] if state.next else None
+            gate = _GATE_FOR_PHASE.get(req.phase)
+            # If the requested phase does not match current gate, but thread is parked at a gate, adapt
+            if current_gate in _PHASE_FOR_GATE and gate != current_gate:
+                logger.warning(
+                    "Approval for '%s' (gate '%s') adapted to actual waiting gate '%s' (phase '%s')",
+                    req.phase, gate, current_gate, _PHASE_FOR_GATE[current_gate],
+                )
+                gate = current_gate
+                req_phase = _PHASE_FOR_GATE[current_gate]
+            else:
+                req_phase = req.phase
+
+            if gate is None:
+                yield _line({"type": "error", "retryable": False,
+                             "message": f"Unknown approval phase '{req.phase}'"})
+                return
+
+            applied = state.values.get("approvals", {}).get(req_phase, {})
             already_applied = bool(req.decision_id) and applied.get("decision_id") == req.decision_id
 
             if state.next and state.next[0] == gate and not already_applied:
                 # Update state with approval decision
                 approvals = dict(state.values.get("approvals", {}))
-                approvals[req.phase] = {
+                approvals[req_phase] = {
                     "approved": req.approved,
                     "feedback": req.feedback,
                     "decision_id": req.decision_id,
@@ -294,7 +312,7 @@ async def approve_workflow(req: ApprovalRequest) -> StreamingResponse:
                 if not req.approved and req.feedback:
                     manager_feedback = list(state.values.get("manager_feedback", []))
                     manager_feedback.append({
-                        "phase": req.phase,
+                        "phase": req_phase,
                         "feedback": req.feedback,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })

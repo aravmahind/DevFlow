@@ -123,7 +123,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         break
       }
       case 'run_complete': {
-        set({ status: 'complete', progress: 100, lastSeq: evt.seq })
+        const nextProject = state.project ? { ...state.project, status: 'complete' as const, progress: 100, pending_approval: null } : state.project
+        set({ status: 'complete', progress: 100, project: nextProject, lastSeq: evt.seq })
+        break
+      }
+      case 'paused_for_approval': {
+        const nextProject = state.project
+          ? {
+              ...state.project,
+              status: 'awaiting_approval' as const,
+              pending_approval: evt.pending_approval || state.project.pending_approval,
+            }
+          : state.project
+        set({
+          status: 'awaiting_approval',
+          project: nextProject,
+          lastSeq: evt.seq ?? state.lastSeq,
+        })
         break
       }
       case 'run_failed': {

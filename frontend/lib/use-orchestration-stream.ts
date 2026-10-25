@@ -106,7 +106,7 @@ export function useOrchestrationStream(projectId: string | null) {
             return
           }
           applyEvent(evt)
-          if (evt.type === 'run_complete' || evt.type === 'stream_end') {
+          if (evt.type === 'run_complete' || evt.type === 'stream_end' || evt.type === 'paused_for_approval') {
             clearTimeout(refetchTimer)
             refetchTimer = setTimeout(() => {
               if (!closed) getProject(projectId).then(setProject).catch(() => {})

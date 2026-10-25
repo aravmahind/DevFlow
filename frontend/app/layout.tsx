@@ -12,8 +12,8 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 export const metadata: Metadata = {
   metadataBase: new URL('https://devflow.ai'),
   title: {
-    default: 'Devflow — Ship the plan before you write the first line of code',
-    template: '%s · Devflow',
+    default: 'DevFlow',
+    template: '%s · DevFlow',
   },
   description:
     'Devflow is an AI organization — PM, architect, estimation and risk agents — that turns one idea into a complete software delivery plan: requirements, backlog, milestones, team, cost and risks. Free to start.',

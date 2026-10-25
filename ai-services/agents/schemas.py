@@ -519,3 +519,7 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "risk_agent": RiskBundle,
     "deployment_advisor": DeploymentRecommendation,
 }
+
+# Backward compatibility aliases
+IntegrationBundle = DeploymentRecommendation
+TeamPlan = SprintPlan

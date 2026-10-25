@@ -1,9 +1,12 @@
 """Project REST API."""
 from __future__ import annotations
 
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
 from app.core.auth import CurrentUser, current_user
@@ -53,6 +56,96 @@ async def migrate(req: MigrateRequest, user: CurrentUser = Depends(current_user)
     )
     await enqueue_analysis(doc["id"])
     return AnalyzeResponse(project_id=doc["id"], status="queued")
+
+
+def extract_text_from_file_bytes(filename: str, data: bytes, mime_type: str = "") -> str:
+    """Extract readable text from PDF, Word (.docx), or plain text documents."""
+    lower_name = filename.lower()
+    if lower_name.endswith(".pdf") or "pdf" in mime_type.lower():
+        try:
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(data))
+                pages = [page.extract_text() or "" for page in reader.pages]
+                return "\n\n".join(p.strip() for p in pages if p.strip())
+            except ImportError:
+                import fitz
+                doc = fitz.open(stream=data, filetype="pdf")
+                pages = [page.get_text().strip() for page in doc if page.get_text()]
+                doc.close()
+                return "\n\n".join(pages)
+        except Exception as exc:
+            logger.error("Failed to parse PDF %s: %s", filename, exc)
+            raise HTTPException(status_code=400, detail=f"Failed to read PDF document: {exc}")
+    elif lower_name.endswith(".docx") or "officedocument.wordprocessingml" in mime_type.lower():
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                xml_content = z.read("word/document.xml")
+                tree = ET.fromstring(xml_content)
+                paragraphs = []
+                for node in tree.iter():
+                    if node.tag.endswith("}p"):
+                        p_text = "".join(t.text for t in node.iter() if t.text)
+                        if p_text.strip():
+                            paragraphs.append(p_text.strip())
+                return "\n\n".join(paragraphs) if paragraphs else "".join(node.text for node in tree.iter() if node.text)
+        except Exception as exc:
+            logger.error("Failed to parse DOCX %s: %s", filename, exc)
+            raise HTTPException(status_code=400, detail=f"Failed to read Word document: {exc}")
+    else:
+        # Plain text, markdown, csv, json, yaml, etc.
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return data.decode("latin1")
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Unsupported or unreadable text document: {exc}")
+
+
+@router.post("/extract-document")
+async def extract_document(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Extract text from an uploaded document (PDF, DOCX, Markdown, Text, etc.) for agent context."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file selected")
+    
+    # 20 MB size limit
+    max_bytes = 20 * 1024 * 1024
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty")
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=400, detail="File exceeds 20MB limit")
+        
+    extracted = extract_text_from_file_bytes(file.filename, data, file.content_type or "")
+    cleaned = extracted.strip()
+    if len(cleaned) < 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Document text is too short (must contain at least 12 characters of readable text).",
+        )
+    
+    truncated = False
+    if len(cleaned) > 245_000:
+        cleaned = cleaned[:245_000]
+        truncated = True
+        
+    stem = file.filename.rsplit(".", 1)[0]
+    derived_title = stem.replace("_", " ").replace("-", " ").strip().title()
+    
+    return {
+        "filename": file.filename,
+        "title": derived_title or "Project Reference Document",
+        "content": cleaned,
+        "char_count": len(cleaned),
+        "word_count": len(cleaned.split()),
+        "truncated": truncated,
+        "mime_type": file.content_type or "text/plain",
+        "file_size": len(data),
+    }
 
 
 class RetryProjectRequest(BaseModel):

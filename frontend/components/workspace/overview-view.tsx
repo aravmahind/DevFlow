@@ -172,7 +172,7 @@ export function OverviewView() {
         <div className="border border-rose-200/80 bg-rose-50/40 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-8">
           <div>
             <h3 className="font-bold text-sm text-rose-950 flex items-center gap-2">
-              <Trash2 className="w-4 h-4 text-rose-600" /> Danger Zone: Delete Project
+              <Trash2 className="w-4 h-4 text-rose-600" /> Delete Project
             </h3>
             <p className="text-xs text-rose-700/80 mt-1 max-w-xl leading-relaxed">
               Permanently delete this project and all its specifications, backlog tasks, sprint schedules, and team assignments. This action cannot be undone.

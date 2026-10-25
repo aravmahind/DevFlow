@@ -87,6 +87,33 @@ export async function analyzeProject(
   return jsonOrThrow(res)
 }
 
+export interface ExtractedDocument {
+  filename: string
+  title: string
+  content: string
+  char_count: number
+  word_count: number
+  truncated?: boolean
+  mime_type?: string
+  file_size?: number
+}
+
+export async function extractDocumentText(file: File): Promise<ExtractedDocument> {
+  const token = await getAuthToken()
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await fetch(`${endpoint.projects()}/extract-document`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  })
+  return jsonOrThrow(res)
+}
+
+
 export async function retryProject(
   projectId: string,
 ): Promise<{ project_id: string; status: string }> {

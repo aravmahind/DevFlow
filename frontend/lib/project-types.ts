@@ -245,5 +245,6 @@ export type OrchestrationEvent =
   | { type: 'supervisor_review'; round: number; passed: boolean; assessment: string; directives_count: number; seq?: number }
   | { type: 'supervisor_directive'; agent: string; reason: string; round: number; seq?: number }
   | { type: 'quality_score'; agent: string; passed: boolean; issues: string[]; seq?: number }
+  | { type: 'paused_for_approval'; pending_approval?: string | null; seq?: number }
   | { type: 'ping' }
   | { type: 'stream_end' }
