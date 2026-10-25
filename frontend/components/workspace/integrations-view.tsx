@@ -43,7 +43,7 @@ export function IntegrationsView() {
         {(data.integrations || []).map((integ, idx) => {
           const Icon = categoryIcon[integ.category] || Plug
           return (
-            <div key={idx} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs">
+            <div key={`integ-${idx}`} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
                   <Icon className="w-5 h-5" />
@@ -64,7 +64,7 @@ export function IntegrationsView() {
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Integration Steps</span>
                 {(integ.steps || []).map((s, i) => (
-                  <div key={i} className="text-xs text-slate-700 flex gap-2 items-start">
+                  <div key={`step-${idx}-${i}`} className="text-xs text-slate-700 flex gap-2 items-start">
                     <span className="text-blue-600 font-bold font-mono text-[11px]">{i + 1}.</span>
                     <span className="flex-1">
                       <InlineEditable path={`/integrations/integrations/${idx}/steps/${i}`} value={s} multiline />
@@ -85,7 +85,7 @@ export function IntegrationsView() {
           </h3>
           <ol className="space-y-2">
             {(data.deployment_plan || []).map((s, i) => (
-              <li key={i} className="text-xs text-slate-700 flex gap-2 items-start">
+              <li key={`deploy-${i}`} className="text-xs text-slate-700 flex gap-2 items-start">
                 <span className="text-emerald-600 font-bold font-mono text-[11px]">{i + 1}.</span>
                 <span className="flex-1">
                   <InlineEditable path={`/integrations/deployment_plan/${i}`} value={s} multiline />
@@ -100,7 +100,7 @@ export function IntegrationsView() {
           </h3>
           <ul className="space-y-2">
             {(data.cicd_recommendations || []).map((s, i) => (
-              <li key={i} className="text-xs text-slate-700 flex gap-2 items-start">
+              <li key={`cicd-${i}`} className="text-xs text-slate-700 flex gap-2 items-start">
                 <span className="text-purple-600 font-bold">•</span>
                 <span className="flex-1">
                   <InlineEditable path={`/integrations/cicd_recommendations/${i}`} value={s} multiline />

@@ -198,6 +198,14 @@ export async function listProjects(): Promise<{ projects: Partial<ProjectDoc>[] 
   return jsonOrThrow(res)
 }
 
+export async function deleteProject(projectId: string): Promise<{ status: string; deleted: boolean; project_id: string }> {
+  const res = await fetch(endpoint.project(projectId), {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  return jsonOrThrow(res)
+}
+
 export async function getAgents(): Promise<{ agents: { id: string; name: string; role: string; node: string }[] }> {
   const res = await fetch(endpoint.agents(), { cache: 'no-store' })
   return jsonOrThrow(res)

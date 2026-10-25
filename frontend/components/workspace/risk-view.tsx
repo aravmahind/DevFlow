@@ -67,7 +67,7 @@ export function RiskView() {
             {risks.map((risk, idx) => {
               const tone = severityClass[risk.severity] || severityClass.medium
               return (
-                <div key={idx} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs hover:border-slate-300 transition-all">
+                <div key={`risk-${idx}`} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs hover:border-slate-300 transition-all">
                   <div className="flex items-start gap-4">
                     <div className={`p-2 rounded-lg border ${tone.bg} ${tone.border} ${tone.text} flex-shrink-0 mt-0.5`}>
                       <ShieldAlert className="w-5 h-5" />

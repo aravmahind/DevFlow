@@ -213,6 +213,18 @@ async def get_project(project_id: str, user: CurrentUser = Depends(current_user)
     return doc
 
 
+@router.delete("/{project_id}")
+async def delete_project(project_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    """Permanently delete a project and all associated resources."""
+    try:
+        deleted = await project_service.delete_project(project_id, user.id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="project not found")
+        return {"status": "ok", "deleted": True, "project_id": project_id}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
 @router.post("/{project_id}/documents", status_code=201)
 async def add_project_document(
     project_id: str,

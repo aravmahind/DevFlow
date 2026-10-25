@@ -25,7 +25,22 @@ export function BacklogView() {
     )
   }
 
-  const sprints = [...(backlog.sprints || [])].sort((a, b) => a.number - b.number)
+  const rawSprints = backlog.sprints || []
+  const hasDuplicateNumbers = rawSprints.some((s: any, idx: number) =>
+    rawSprints.slice(0, idx).some((prev: any) => prev.number === s.number)
+  )
+  const sprints = rawSprints
+    .map((sprint: any, idx: number) => {
+      const num = hasDuplicateNumbers || !sprint.number ? idx + 1 : sprint.number
+      const name =
+        sprint.name && sprint.name !== 'Sprint 1'
+          ? sprint.name
+          : hasDuplicateNumbers
+          ? `Sprint ${idx + 1}`
+          : sprint.name || `Sprint ${idx + 1}`
+      return { ...sprint, number: num, name }
+    })
+    .sort((a: any, b: any) => a.number - b.number)
   const tasks = backlog.tasks || []
   const totalDays = tasks.reduce((s, t) => s + (t.estimated_days || 0), 0)
 
@@ -48,7 +63,7 @@ export function BacklogView() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {backlog.epics.map((epic, idx) => (
-              <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <div key={`epic-${idx}`} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                 <p className="font-semibold text-xs text-slate-900">
                   <InlineEditable path={`/backlog/epics/${idx}/title`} value={epic.title} />
                 </p>
@@ -65,7 +80,7 @@ export function BacklogView() {
       {sprints.map((sprint, sIdx) => {
         const sprintTasks = tasks.filter((t) => t.sprint === sprint.number)
         return (
-          <div key={sprint.number} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs">
+          <div key={`sprint-${sprint.number ?? sIdx}-${sIdx}`} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4 gap-2">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 flex-1">
                 <Flag className="w-4 h-4 text-blue-600" /> Sprint {sprint.number}:{' '}

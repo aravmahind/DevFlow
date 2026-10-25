@@ -17,8 +17,11 @@ import {
   DollarSign,
   ShieldCheck,
   RotateCw,
+  Trash2,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react'
-import { listProjects, retryProject } from '@/lib/api'
+import { listProjects, retryProject, deleteProject } from '@/lib/api'
 import type { ProjectDoc } from '@/lib/project-types'
 import { TopNavbar } from '@/components/layout/top-navbar'
 import { AccountPanel } from '@/components/layout/account-panel'
@@ -79,6 +82,10 @@ function ProjectsSection({ userId }: { userId: string | null }) {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'ready' | 'active' | 'failed'>('all')
+  const [projectToDelete, setProjectToDelete] = useState<ProjectSummary | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -106,6 +113,25 @@ function ProjectsSection({ userId }: { userId: string | null }) {
       mounted = false
     }
   }, [userId])
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete?.id) return
+    const id = projectToDelete.id
+    const title = projectToDelete.title || 'Untitled Project'
+    setDeletingId(id)
+    setDeleteError(null)
+    try {
+      await deleteProject(id)
+      setProjects((prev) => prev.filter((p) => p.id !== id))
+      setProjectToDelete(null)
+      setToastMessage(`Project "${title}" was permanently deleted.`)
+      setTimeout(() => setToastMessage(null), 4000)
+    } catch (err: any) {
+      setDeleteError(err?.message?.replace(/^\d+:\s*/, '') || 'Failed to delete project')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
@@ -166,6 +192,14 @@ function ProjectsSection({ userId }: { userId: string | null }) {
 
   return (
     <div className="space-y-4">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-medium text-emerald-800 animate-in fade-in duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Search & Filter Toolbar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
@@ -203,17 +237,34 @@ function ProjectsSection({ userId }: { userId: string | null }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredProjects.map((p) => (
+          {filteredProjects.map((p, pIdx) => (
             <div
-              key={p.id}
+              key={p.id ? `${p.id}-${pIdx}` : `proj-${pIdx}`}
               onClick={() => router.push(`/workspace?project=${p.id}`)}
               className="group flex flex-col p-5 rounded-2xl bg-white border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md cursor-pointer transition-all duration-200"
             >
               <div className="flex items-start justify-between gap-3 mb-2">
-                <h3 className="font-bold text-sm text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+                <h3 className="font-bold text-sm text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1 flex-1">
                   {p.title || 'Untitled Project'}
                 </h3>
-                <StatusBadge status={p.status} />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <StatusBadge status={p.status} />
+                  {(!p.project_role || p.project_role === 'manager') && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setProjectToDelete(p)
+                        setDeleteError(null)
+                      }}
+                      className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Delete project completely"
+                      aria-label={`Delete ${p.title || 'project'}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
               
               <div className="flex items-center gap-2 mb-3">
@@ -283,6 +334,80 @@ function ProjectsSection({ userId }: { userId: string | null }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => !deletingId && setProjectToDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Delete Project</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This action is permanent and cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
+              <p>
+                Are you sure you want to completely delete{' '}
+                <span className="font-bold text-slate-900">
+                  &ldquo;{projectToDelete.title || 'Untitled Project'}&rdquo;
+                </span>
+                ?
+              </p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                All AI requirements, architecture designs, sprint backlog tasks, risks, and member history will be permanently deleted from the database.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={Boolean(deletingId)}
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(deletingId)}
+                onClick={handleConfirmDelete}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {deletingId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Project Completely</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -86,7 +86,7 @@ export function RequirementsView() {
             </h3>
             <div className="space-y-4">
               {reqs.user_stories.map((story, idx) => (
-                <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <div key={`story-${idx}`} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                   <div className="text-xs text-slate-900 leading-relaxed font-medium flex flex-wrap items-center gap-1.5">
                     <span className="text-blue-600 font-bold">As a</span>
                     <InlineEditable path={`/requirements/user_stories/${idx}/as_a`} value={story.as_a} className="font-semibold text-slate-900" />,
@@ -102,7 +102,7 @@ export function RequirementsView() {
                       </span>
                       <ul className="space-y-1.5">
                         {story.acceptance_criteria.map((c, i) => (
-                          <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                          <li key={`ac-${idx}-${i}`} className="flex items-start gap-2 text-xs text-slate-600">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 mt-0.5 flex-shrink-0" />
                             <span className="flex-1">
                               <InlineEditable path={`/requirements/user_stories/${idx}/acceptance_criteria/${i}`} value={c} multiline />
@@ -125,7 +125,7 @@ export function RequirementsView() {
               </h3>
               <ul className="space-y-2">
                 {reqs.scope_in.map((s, i) => (
-                  <li key={i} className="text-xs text-slate-700 flex gap-2 items-start">
+                  <li key={`scopein-${i}`} className="text-xs text-slate-700 flex gap-2 items-start">
                     <span className="text-emerald-600 font-bold">+</span>
                     <span className="flex-1">
                       <InlineEditable path={`/requirements/scope_in/${i}`} value={s} multiline />
@@ -140,7 +140,7 @@ export function RequirementsView() {
               </h3>
               <ul className="space-y-2">
                 {reqs.scope_out.map((s, i) => (
-                  <li key={i} className="text-xs text-slate-700 flex gap-2 items-start">
+                  <li key={`scopeout-${i}`} className="text-xs text-slate-700 flex gap-2 items-start">
                     <span className="text-rose-500 font-bold">−</span>
                     <span className="flex-1">
                       <InlineEditable path={`/requirements/scope_out/${i}`} value={s} multiline />

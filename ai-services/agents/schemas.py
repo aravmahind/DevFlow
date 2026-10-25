@@ -392,6 +392,23 @@ class SprintPlan(BaseModel):
     recommended_roles: List[TeamRoleRecommendation] = Field(default_factory=list)
     staffing_notes: List[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def normalize_sprints(self) -> SprintPlan:
+        if self.sprints:
+            numbers = [s.number for s in self.sprints]
+            if len(numbers) != len(set(numbers)):
+                num_sprints = len(self.sprints)
+                for idx, sprint in enumerate(self.sprints):
+                    sprint.number = idx + 1
+                    if not sprint.name or sprint.name.lower() in {"sprint", "sprint 1"}:
+                        sprint.name = f"Sprint {idx + 1}"
+                if self.tasks:
+                    task_sprints = [t.sprint for t in self.tasks]
+                    if len(set(task_sprints)) <= 1 and num_sprints > 1:
+                        for idx, task in enumerate(self.tasks):
+                            task.sprint = (idx % num_sprints) + 1
+        return self
+
 
 # --------------------------------------------------------------------------- #
 # Risk Agent — Risk Analysis (enhanced for GitHub progress)

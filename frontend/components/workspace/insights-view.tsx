@@ -387,7 +387,7 @@ export function InsightsView() {
         <RaidCard title="Core Assumptions" icon={HelpCircle} accent="bg-amber-50 text-amber-600 border border-amber-200">
           <ul className="space-y-2.5">
             {assumptions.map((a, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
+              <li key={`assump-${i}`} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
                 <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-500" />
                 <span className="flex-1">
                   <InlineEditable path={`/insights/assumptions/${i}`} value={a} multiline />
@@ -401,7 +401,7 @@ export function InsightsView() {
         <RaidCard title="Critical Dependencies" icon={GitBranch} accent="bg-blue-50 text-blue-600 border border-blue-200">
           <ul className="space-y-2.5">
             {dependencies.map((d, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
+              <li key={`dep-${i}`} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
                 <span className="text-blue-600 font-mono font-bold text-[11px] flex-shrink-0 mt-0.5">
                   {String(i + 1).padStart(2, '0')}.
                 </span>
@@ -417,7 +417,7 @@ export function InsightsView() {
         <RaidCard title="Key Decisions" icon={CheckSquare} accent="bg-purple-50 text-purple-600 border border-purple-200">
           <ul className="space-y-2.5">
             {decisions.map((d, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
+              <li key={`dec-${i}`} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 flex-shrink-0">
                   {d.layer}
                 </span>
@@ -441,7 +441,7 @@ export function InsightsView() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {recommendations.map((rec, i) => (
             <div
-              key={i}
+              key={`rec-${i}`}
               className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-3"
             >
               <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 font-bold text-xs">

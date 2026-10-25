@@ -79,13 +79,13 @@ function AssigneePicker({
               <span>Unassigned</span>
               {!value && <Check className="w-3 h-3 text-blue-500 ml-auto" />}
             </button>
-            {users.map(u => {
+            {users.map((u, uIdx) => {
               const uName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email
               const uAvatar = u.image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(uName)}&background=e2e8f0&color=475569&size=32`
               const isSelected = value === u.user_id
               return (
                 <button
-                  key={u.user_id}
+                  key={`${u.user_id || 'user'}-${uIdx}`}
                   onClick={() => { onChange(u.user_id); setOpen(false) }}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${
                     isSelected ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
@@ -170,7 +170,22 @@ export function SprintBoardView() {
   }
 
   const tasks = backlog.tasks || []
-  const sprints = [...(backlog.sprints || [])].sort((a, b) => a.number - b.number)
+  const rawSprints = backlog.sprints || []
+  const hasDuplicateNumbers = rawSprints.some((s: any, idx: number) =>
+    rawSprints.slice(0, idx).some((prev: any) => prev.number === s.number)
+  )
+  const sprints = rawSprints
+    .map((sprint: any, idx: number) => {
+      const num = hasDuplicateNumbers || !sprint.number ? idx + 1 : sprint.number
+      const name =
+        sprint.name && sprint.name !== 'Sprint 1'
+          ? sprint.name
+          : hasDuplicateNumbers
+          ? `Sprint ${idx + 1}`
+          : sprint.name || `Sprint ${idx + 1}`
+      return { ...sprint, number: num, name }
+    })
+    .sort((a: any, b: any) => a.number - b.number)
 
   // Ensure tasks have statuses
   const allNormalizedTasks = tasks.map((t: any, index: number) => ({ ...t, status: t.status || 'To Do', _index: index }))
@@ -422,7 +437,7 @@ export function SprintBoardView() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4 items-start">
-          {sprints.map((sprint) => {
+          {sprints.map((sprint, sIdx) => {
             const colTasks = normalizedTasks.filter((t: any) => t.sprint === sprint.number)
             const colDays = colTasks.reduce((sum: number, t: any) => sum + (t.estimated_days || 0), 0)
             const maxSprintDays = Math.max(1, ...sprints.map(s => normalizedTasks.filter((t:any) => t.sprint === s.number).reduce((sum:number, t:any) => sum + (t.estimated_days || 0), 0)))
@@ -430,7 +445,7 @@ export function SprintBoardView() {
             const loadKey = loadRatio > 0.75 ? 'high' : loadRatio > 0.4 ? 'medium' : 'low'
 
             return (
-              <div key={sprint.number} className="bg-slate-100/70 border border-slate-200 p-4 rounded-2xl flex-shrink-0 w-[290px] flex flex-col">
+              <div key={`sprint-${sprint.number ?? sIdx}-${sIdx}`} className="bg-slate-100/70 border border-slate-200 p-4 rounded-2xl flex-shrink-0 w-[290px] flex flex-col">
                 <div className="mb-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Sprint {sprint.number}</span>
@@ -481,8 +496,8 @@ function TeamLoad({ tasks, users }: { tasks: any[]; users: any[] }) {
   const max = Math.max(1, ...people.map((p) => p.load))
   return (
     <section aria-label="Team load" className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3 mb-5">
-      {people.map((p) => (
-        <div key={p.id} className="bg-white border border-slate-200 rounded-lg px-3.5 py-3 flex items-center gap-3">
+      {people.map((p, pIdx) => (
+        <div key={`${p.id || 'person'}-${pIdx}`} className="bg-white border border-slate-200 rounded-lg px-3.5 py-3 flex items-center gap-3">
           <span className="w-7 h-7 rounded-full bg-slate-800 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
             {p.name.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
           </span>

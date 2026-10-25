@@ -138,6 +138,7 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [isRetrying, setIsRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
+  const [isApproving, setIsApproving] = useState(false)
   const logsEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -361,34 +362,46 @@ export function OrchestrationLoader({ onDismiss }: { onDismiss?: () => void }) {
             />
             <div className="flex gap-3 mt-2">
               <button
-                className="px-5 min-h-11 bg-signal text-slate-950 rounded-full text-sm font-semibold cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 min-h-11 bg-signal text-slate-950 rounded-full text-sm font-semibold disabled:opacity-60 cursor-pointer"
+                disabled={isApproving}
                 onClick={async () => {
+                  if (isApproving) return
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
+                  setIsApproving(true)
                   try {
                     await approveProject(project.id, project.pending_approval!, true, fb)
                     setProject(await getProject(project.id))
                   } catch (err) {
                     console.error('Failed to approve:', err)
                     alert('Failed to approve project.')
+                  } finally {
+                    setIsApproving(false)
                   }
                 }}
               >
+                {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
                 Approve & continue
               </button>
               <button
-                className="px-5 min-h-11 text-white border border-white/20 rounded-full text-sm font-semibold hover:bg-white/10 cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 min-h-11 text-white border border-white/20 rounded-full text-sm font-semibold hover:bg-white/10 disabled:opacity-60 cursor-pointer"
+                disabled={isApproving}
                 onClick={async () => {
+                  if (isApproving) return
                   const fb = (document.getElementById('feedback-input') as HTMLTextAreaElement).value
                   if (!fb) { alert('Please provide feedback for revision'); return; }
+                  setIsApproving(true)
                   try {
                     await approveProject(project.id, project.pending_approval!, false, fb)
                     setProject(await getProject(project.id))
                   } catch (err) {
                     console.error('Failed to reject:', err)
                     alert('Failed to reject project.')
+                  } finally {
+                    setIsApproving(false)
                   }
                 }}
               >
+                {isApproving && <Loader2 className="w-4 h-4 animate-spin" />}
                 Send back with feedback
               </button>
             </div>

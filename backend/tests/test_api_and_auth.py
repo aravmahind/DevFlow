@@ -458,3 +458,42 @@ def test_retry_request_max_agents():
 
     with pytest.raises(PydanticVE):
         RetryProjectRequest(target_agents=["a"] * 9)  # max_length=8
+
+
+# ---------------------------------------------------------------------------
+# API-016  DELETE /projects/{id} — Delete project endpoint
+# ---------------------------------------------------------------------------
+def test_delete_project_rbac_permission():
+    """RBAC: Manager can delete project, developer and tester cannot."""
+    assert check_permission("manager", "delete_project")
+    assert not check_permission("developer", "delete_project")
+    assert not check_permission("tester", "delete_project")
+
+
+def test_delete_project_success():
+    """API-016: DELETE /projects/{id} succeeds for manager."""
+    client = _make_client()
+    with patch("app.services.projects.delete_project", AsyncMock(return_value=True)):
+        res = client.delete("/projects/abc123", headers={"Authorization": "Bearer fake_token"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ok"
+        assert data["deleted"] is True
+        assert data["project_id"] == "abc123"
+
+
+def test_delete_project_not_found():
+    """API-017: DELETE /projects/{id} returns 404 if project does not exist."""
+    client = _make_client()
+    with patch("app.services.projects.delete_project", AsyncMock(return_value=False)):
+        res = client.delete("/projects/nonexistent", headers={"Authorization": "Bearer fake_token"})
+        assert res.status_code == 404
+
+
+def test_delete_project_forbidden():
+    """API-018: DELETE /projects/{id} returns 403 if permission denied."""
+    client = _make_client()
+    with patch("app.services.projects.delete_project", AsyncMock(side_effect=PermissionError("Only managers can delete"))):
+        res = client.delete("/projects/abc123", headers={"Authorization": "Bearer fake_token"})
+        assert res.status_code == 403
+        assert "Only managers can delete" in res.json()["detail"]

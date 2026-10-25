@@ -297,11 +297,12 @@ def route_sprint_review(state: ProjectState) -> str:
         return "replan"
 
     feedback = review.get("feedback", "").lower()
-    if "complete" in feedback or "done" in feedback:
-        return "complete"
+    # Only loop into another sprint if the manager explicitly asks for one
+    if any(kw in feedback for kw in ("next sprint", "another sprint", "sprint again", "run again")):
+        return "next_sprint"
 
-    # Default: proceed to next sprint cycle
-    return "next_sprint"
+    # Default on approval: mark the project complete
+    return "complete"
 
 
 async def mark_complete(state: ProjectState) -> dict[str, Any]:

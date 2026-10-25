@@ -1,21 +1,42 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useProjectStore } from '@/lib/project-store'
 import { useAppStore, type WorkspaceMode } from '@/lib/store'
-import { approveProject, getProject } from '@/lib/api'
+import { approveProject, getProject, deleteProject } from '@/lib/api'
 import { useProjectRole } from '@/components/auth/permission-guard'
 import { InlineEditable } from './workspace-editor'
 import {
   Target, Clock, Users, Sparkles, CheckCircle2,
   DollarSign, ShieldAlert, Flag, TrendingUp, Loader2,
+  Trash2, AlertCircle,
 } from 'lucide-react'
 import { RunControls, AgentWorkingBadge } from './run-controls'
 
 export function OverviewView() {
+  const router = useRouter()
   const project = useProjectStore((s) => s.project)
   const status = useProjectStore((s) => s.status)
+  const role = useProjectRole()
   const exec = project?.executive_summary || null
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const handleDeleteProject = async () => {
+    if (!project?.id) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteProject(project.id)
+      router.push('/my-projects')
+    } catch (err: any) {
+      setDeleteError(err?.message?.replace(/^\d+:\s*/, '') || 'Failed to delete project')
+      setDeleting(false)
+    }
+  }
 
   const title = exec?.project_title || project?.title || 'New Project'
   const subtitle = exec?.tagline || exec?.overview || project?.idea || 'Your AI-generated delivery plan'
@@ -144,6 +165,105 @@ export function OverviewView() {
         </div>
       ) : (
         <GeneratingPanel label="Executive Summary" />
+      )}
+
+      {/* Danger Zone: Delete Project (Managers only) */}
+      {(!role || role === 'manager') && (
+        <div className="border border-rose-200/80 bg-rose-50/40 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-8">
+          <div>
+            <h3 className="font-bold text-sm text-rose-950 flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-rose-600" /> Danger Zone: Delete Project
+            </h3>
+            <p className="text-xs text-rose-700/80 mt-1 max-w-xl leading-relaxed">
+              Permanently delete this project and all its specifications, backlog tasks, sprint schedules, and team assignments. This action cannot be undone.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowDeleteModal(true)
+              setDeleteError(null)
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Project Completely
+          </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => !deleting && setShowDeleteModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Delete Project</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This action is permanent and cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
+              <p>
+                Are you sure you want to completely delete{' '}
+                <span className="font-bold text-slate-900">
+                  &ldquo;{project?.title || title || 'this project'}&rdquo;
+                </span>
+                ?
+              </p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                All AI requirements, architecture designs, sprint backlog tasks, risks, and member history will be permanently erased.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDeleteProject}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Project Completely</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

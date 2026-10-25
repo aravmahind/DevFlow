@@ -20,7 +20,7 @@ PERMISSIONS: dict[str, set[str]] = {
     "manager": {
         "view_project", "edit_content", "create_project", "invite_members",
         "assign_roles", "assign_tasks", "update_own_task", "run_analysis",
-        "manage_integrations", "sync_integrations",
+        "manage_integrations", "sync_integrations", "delete_project",
     },
     "developer": {
         "view_project", "edit_content", "update_own_task", "sync_integrations",

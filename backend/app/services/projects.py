@@ -77,6 +77,30 @@ async def list_projects(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
     return [{key: row["document"].get(key) for key in keys} for row in rows]
 
 
+async def delete_project(project_id: str, user_id: str) -> bool:
+    """Permanently delete a project and all associated data."""
+    from app.services import rbac
+    role = await rbac.get_project_role(project_id, user_id)
+    if not role:
+        row = await fetchrow("SELECT user_id FROM projects WHERE id=$1", project_id)
+        if not row:
+            return False
+        raise PermissionError("You do not have permission to delete this project")
+
+    if not rbac.check_permission(role, "delete_project"):
+        raise PermissionError("Only managers can delete this project")
+
+    try:
+        from app.orchestrator.manager import stop_run
+        await stop_run(project_id, new_status="stopped")
+    except Exception as exc:
+        logger.debug("stop_run during project deletion (%s): %s", project_id, exc)
+
+    await execute("DELETE FROM projects WHERE id=$1", project_id)
+    logger.info("Permanently deleted project %s by user %s", project_id, user_id)
+    return True
+
+
 async def _save_doc(project_id: str, doc: dict[str, Any]) -> None:
     # Status is owned by set_status. Keeping the stored one here means a document
     # read before a Stop (or any status change) can't write the old status back.

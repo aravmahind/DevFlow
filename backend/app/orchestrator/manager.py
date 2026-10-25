@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import socket
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import httpx
@@ -158,17 +159,17 @@ async def _run_job(job_id: int, project_id: str, request: dict[str, Any]) -> Non
         # Always resume: a new project has no checkpoint and starts fresh, while
         # a retried or recovered run continues from where it stopped.
         stream = ai_services.stream_workflow(project_id, idea, title, resume=True)
+        kickoff_log = {
+            "type": "log",
+            "agent": "ceo",
+            "level": "info",
+            "message": f"Orchestrating specialist pipeline for: {title or 'Project'}",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        await event_bus.publish(project_id, kickoff_log)
+        await orchestration_store.append_event(job_id, project_id, kickoff_log)
+        await project_service.apply_event(project_id, kickoff_log)
     await project_service.set_status(project_id, "running", error=None)
-    kickoff_log = {
-        "type": "log",
-        "agent": "ceo",
-        "level": "info",
-        "message": f"Orchestrating specialist pipeline for: {title or 'Project'}",
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }
-    await event_bus.publish(project_id, kickoff_log)
-    await orchestration_store.append_event(job_id, project_id, kickoff_log)
-    await project_service.apply_event(project_id, kickoff_log)
     await asyncio.wait_for(_consume(job_id, project_id, stream), timeout=settings.run_timeout_seconds)
 
 
