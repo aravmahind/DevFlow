@@ -152,7 +152,7 @@ export function AiAssistant() {
             className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full liquid-glass-dark pl-4 pr-5 py-3 font-medium transition-all cursor-pointer text-xs hover:-translate-y-0.5"
           >
             <Sparkles className="w-4 h-4" />
-            Flowmate
+
           </button>
         )}
       </AnimatePresence>
@@ -194,11 +194,10 @@ export function AiAssistant() {
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 leading-relaxed ${
-                      m.role === 'user'
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 leading-relaxed ${m.role === 'user'
                         ? 'bg-blue-600 text-white rounded-br-xs'
                         : 'bg-slate-100 text-slate-800 border border-slate-200/80 rounded-bl-xs'
-                    }`}
+                      }`}
                   >
                     {m.role === 'assistant' ? <Rich text={m.content} /> : m.content}
                     {!!m.edits?.length && (

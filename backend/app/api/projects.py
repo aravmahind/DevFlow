@@ -417,11 +417,12 @@ async def update_task(project_id:str,task_index:int,req:TaskUpdateRequest,user:C
     tasks=((doc.get("backlog") or {}).get("tasks") or [])
     if task_index<0 or task_index>=len(tasks): raise HTTPException(404,"task not found")
     task=tasks[task_index]
+    updates: dict[str, Any] = {}
     if "assignee_id" in req.model_fields_set:
         if not rbac.check_permission(role, "assign_tasks"): raise HTTPException(403,"task assignment permission required")
         members=await rbac.list_project_members(project_id)
         if req.assignee_id and req.assignee_id not in {m["user_id"] for m in members}: raise HTTPException(422,"assignee is not a project member")
-        task["assignee_id"]=req.assignee_id or None
+        updates["assignee_id"] = req.assignee_id or None
     if req.status is not None:
         has_edit = rbac.check_permission(role, "edit_content")
         has_assign = rbac.check_permission(role, "assign_tasks")
@@ -431,21 +432,25 @@ async def update_task(project_id:str,task_index:int,req:TaskUpdateRequest,user:C
         if not (has_edit or has_assign):
             if task.get("assignee_id") and task.get("assignee_id") != user.id:
                 raise HTTPException(403, "only the assignee may update this task")
-        task["status"] = req.status
+        updates["status"] = req.status
+    if not updates:
+        raise HTTPException(422, "provide a task field to update")
     try:
-        updated = await project_service.edit_content(
-            project_id, user.id, f"/backlog/tasks/{task_index}", task,
+        updated = await project_service.update_task_fields(
+            project_id, user.id, task_index, updates,
             expected_revision=req.expected_revision,
             operation="task_update"
         )
     except RuntimeError:
-        # Concurrent revision conflict - retry without strict expected_revision to preserve task move
-        updated = await project_service.edit_content(
-            project_id, user.id, f"/backlog/tasks/{task_index}", task,
+        # The atomic field update can safely retry after another task edit.
+        updated = await project_service.update_task_fields(
+            project_id, user.id, task_index, updates,
             expected_revision=None,
             operation="task_update"
         )
-    return {"project": updated, "task": task}
+    if not updated:
+        raise HTTPException(404, "project not found")
+    return {"project": updated, "task": updated["backlog"]["tasks"][task_index]}
 
 
 class AutoAssignRequest(BaseModel):

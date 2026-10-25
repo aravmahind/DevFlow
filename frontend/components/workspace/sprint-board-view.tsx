@@ -208,13 +208,22 @@ export function SprintBoardView() {
     setProject({ ...project, backlog: newBacklog })
     
     try {
-      const result = await updateProjectTask(project.id, taskIndex, updates)
-      if (result.project) setProject(result.project)
+      const result = await updateProjectTask(project.id, taskIndex, {
+        ...updates,
+        expected_revision: project.revision,
+      })
+      // Concurrent task edits can resolve out of order. Never replace a newer
+      // local/project response with an older revision snapshot.
+      if (result.project && (useProjectStore.getState().project?.revision ?? -1) <= result.project.revision) {
+        setProject(result.project)
+      }
     } catch (err) {
       console.error("Failed to update task", err)
       setUpdateError(err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : 'Failed to move task')
       // Rollback
-      setProject({ ...project, backlog })
+      if ((useProjectStore.getState().project?.revision ?? -1) <= (project.revision ?? -1)) {
+        setProject({ ...project, backlog })
+      }
     }
   }
 

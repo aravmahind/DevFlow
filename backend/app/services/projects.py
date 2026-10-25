@@ -289,6 +289,54 @@ async def edit_content(project_id: str, actor_id: str, path: str, value: Any, ex
             return after
 
 
+async def update_task_fields(
+    project_id: str,
+    actor_id: str,
+    task_index: int,
+    updates: dict[str, Any],
+    expected_revision: int | None = None,
+    operation: str = "task_update",
+) -> dict[str, Any] | None:
+    """Atomically update selected fields of one backlog task.
+
+    The task must be read after the row lock is held.  Replacing a task object
+    read before the lock can otherwise restore stale status or assignee values
+    when two edits happen close together.
+    """
+    import copy
+    import json as _json
+
+    async with pool().acquire() as conn:
+        await conn.set_type_codec("jsonb", encoder=_json.dumps, decoder=_json.loads, schema="pg_catalog")
+        async with conn.transaction():
+            row = await conn.fetchrow("SELECT document FROM projects WHERE id=$1 FOR UPDATE", project_id)
+            if not row:
+                return None
+            before = dict(row["document"])
+            current_revision = int(before.get("revision", 0))
+            if expected_revision is not None and expected_revision != current_revision:
+                raise RuntimeError("revision conflict")
+            after = copy.deepcopy(before)
+            tasks = ((after.get("backlog") or {}).get("tasks") or [])
+            if task_index < 0 or task_index >= len(tasks):
+                raise EditError("task does not exist in this plan")
+            tasks[task_index].update(updates)
+            after["revision"] = current_revision + 1
+            after["updated_at"] = _now()
+            path = f"/backlog/tasks/{task_index}"
+            await conn.execute(
+                "UPDATE projects SET title=$2, document=$3, updated_at=NOW() WHERE id=$1",
+                project_id, after.get("title", before.get("title", "Untitled")), after,
+            )
+            await conn.execute(
+                """INSERT INTO project_revisions
+                   (project_id, actor_id, revision, operation, path, before_document, after_document)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                project_id, actor_id, after["revision"], operation, path, before, after,
+            )
+            return after
+
+
 async def undo(project_id: str, actor_id: str) -> dict[str, Any] | None:
     async with pool().acquire() as conn:
         await conn.set_type_codec("jsonb", encoder=__import__('json').dumps, decoder=__import__('json').loads, schema="pg_catalog")
