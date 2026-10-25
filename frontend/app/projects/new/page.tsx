@@ -5,9 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowRight,
   Loader2,
-  Users,
   Clock,
-  DollarSign,
   UploadCloud,
   CheckCircle2,
   AlertCircle,
@@ -86,9 +84,7 @@ function ProjectIntake() {
   const [form, setForm] = useState({
     title: '',
     idea: params.get('idea') || '',
-    team_size: 4,
     timeline_weeks: 12,
-    budget_usd: 50000,
     methodology: 'Agile',
     team_skills: 'Frontend, Backend, Product',
     priorities: 'MVP, Security, Reliability',
@@ -226,9 +222,8 @@ function ProjectIntake() {
 
     try {
       const result = await analyzeProject(form.idea, form.title || undefined, {
-        team_size: Number(form.team_size),
+        team_size: 4,
         timeline_weeks: Number(form.timeline_weeks) || null,
-        budget_usd: Number(form.budget_usd) || null,
         methodology: form.methodology,
         team_skills: form.team_skills.split(',').map(x => x.trim()).filter(Boolean),
         priorities: form.priorities.split(',').map(x => x.trim()).filter(Boolean),
@@ -306,17 +301,6 @@ function ProjectIntake() {
             />
           </Field>
 
-          <Field label="People available" icon={Users}>
-            <input
-              type="number"
-              min="1"
-              max="200"
-              value={form.team_size}
-              onChange={e => set('team_size', e.target.value)}
-              className={control}
-            />
-          </Field>
-
           <Field label="Target timeline (weeks)" icon={Clock}>
             <input
               type="number"
@@ -324,16 +308,6 @@ function ProjectIntake() {
               max="260"
               value={form.timeline_weeks}
               onChange={e => set('timeline_weeks', e.target.value)}
-              className={control}
-            />
-          </Field>
-
-          <Field label="Budget (USD)" icon={DollarSign}>
-            <input
-              type="number"
-              min="0"
-              value={form.budget_usd}
-              onChange={e => set('budget_usd', e.target.value)}
               className={control}
             />
           </Field>
